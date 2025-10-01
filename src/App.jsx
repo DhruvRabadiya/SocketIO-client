@@ -1,24 +1,41 @@
-import React, { useEffect } from "react";
-import { io } from "socket.io-client";
-function App() {
-  useEffect(() => {
-    const socket = io(import.meta.env.VITE_BACKEND_URL);
-    socket.on("connect", () => {
-      console.log("Connected to backend:");
-    });
-    socket.on("onboard", (message) => {
-      console.log(message);
-    });
-    socket.on("disconnect", () => {
-      console.log("Disconnected from server");
-    });
-  }, []);
+import React from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import AuthProvider, { useAuth } from "./context/AuthContext";
+import HomePage from "./pages/HomePage";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import { Toaster } from "react-hot-toast"; // <-- Import Toaster
 
+function PrivateRoute({ children }) {
+  const { token } = useAuth();
+  return token ? children : <Navigate to="/login" />;
+}
+
+function App() {
   return (
-    <div style={{ textAlign: "center", marginTop: "50px" }}>
-      <h1>React + Socket.io Client</h1>
-      <p>Open the console to see socket messages once you add client code.</p>
-    </div>
+    <AuthProvider>
+      <Toaster position="top-center" reverseOrder={false} />{" "}
+      {/* <-- Add Toaster here */}
+      <Router>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <PrivateRoute>
+                <HomePage />
+              </PrivateRoute>
+            }
+          />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 
