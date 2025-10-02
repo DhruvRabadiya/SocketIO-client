@@ -30,3 +30,6 @@ export const loginUser = (credentials) =>
 // --- New User Functions ---
 export const getAllUsers = () => apiClient.get("/user/all");
 export const getUserById = (userId) => apiClient.get(`/user/${userId}`);
+
+
+export const getChatHistory = (roomName) => apiClient.get(`/user/roomname/${roomName}`);

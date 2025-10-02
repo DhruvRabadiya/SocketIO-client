@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from "react";
-import { jwtDecode } from "jwt-decode"; // <-- 1. Import the decoder
+import { jwtDecode } from "jwt-decode";
 import { loginUser, registerUser } from "../services/api";
 
 const AuthContext = createContext(null);
@@ -9,44 +9,43 @@ export const useAuth = () => {
 };
 
 const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("token"));
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     try {
-      const storedToken = localStorage.getItem("token");
-      if (storedToken) {
-        const decodedToken = jwtDecode(storedToken);
-        setUser({ id: decodedToken.id, username: decodedToken.username });
+      if (token) {
+        const decodedToken = jwtDecode(token);
+        setUser({
+          id: decodedToken.id || decodedToken._id,
+          username: decodedToken.username,
+        });
+      } else {
+        setUser(null);
       }
     } catch (error) {
-      console.error("Invalid token found in localStorage", error);
+      console.error("Invalid token:", error);
+      setUser(null);
       setToken(null);
       localStorage.removeItem("token");
     } finally {
       setLoading(false);
     }
-  }, []);
-
+  }, [token]);
   const login = async (credentials) => {
     const { data } = await loginUser(credentials);
     const receivedToken = data.token;
-
-    const decodedToken = jwtDecode(receivedToken);
-
-    setToken(receivedToken);
-    setUser({ username: decodedToken.username });
-
     localStorage.setItem("token", receivedToken);
+    setToken(receivedToken);
   };
 
   const register = (userData) => registerUser(userData);
 
+  // The logout function is also simpler.
   const logout = () => {
-    setUser(null);
-    setToken(null);
     localStorage.removeItem("token");
+    setToken(null);
   };
 
   return (
