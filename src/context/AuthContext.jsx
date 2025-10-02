@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from "react";
+import { jwtDecode } from "jwt-decode"; // <-- 1. Import the decoder
 import { loginUser, registerUser } from "../services/api";
 
 const AuthContext = createContext(null);
@@ -10,20 +11,34 @@ export const useAuth = () => {
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("token"));
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (token) {
-      const storedUsername = localStorage.getItem("username");
-      if (storedUsername) setUser({ username: storedUsername });
+    try {
+      const storedToken = localStorage.getItem("token");
+      if (storedToken) {
+        const decodedToken = jwtDecode(storedToken);
+        setUser({ id: decodedToken.id, username: decodedToken.username });
+      }
+    } catch (error) {
+      console.error("Invalid token found in localStorage", error);
+      setToken(null);
+      localStorage.removeItem("token");
+    } finally {
+      setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   const login = async (credentials) => {
     const { data } = await loginUser(credentials);
-    setToken(data.token);
-    setUser({ username: data.username });
-    localStorage.setItem("token", data.token);
-    localStorage.setItem("username", data.username);
+    const receivedToken = data.token;
+
+    const decodedToken = jwtDecode(receivedToken);
+
+    setToken(receivedToken);
+    setUser({ username: decodedToken.username });
+
+    localStorage.setItem("token", receivedToken);
   };
 
   const register = (userData) => registerUser(userData);
@@ -32,11 +47,12 @@ const AuthProvider = ({ children }) => {
     setUser(null);
     setToken(null);
     localStorage.removeItem("token");
-    localStorage.removeItem("username");
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ user, token, loading, login, register, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );
