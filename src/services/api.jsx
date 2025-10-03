@@ -31,5 +31,10 @@ export const loginUser = (credentials) =>
 export const getAllUsers = () => apiClient.get("/user/all");
 export const getUserById = (userId) => apiClient.get(`/user/${userId}`);
 
-
-export const getChatHistory = (roomName) => apiClient.get(`/user/roomname/${roomName}`);
+export const getChatHistory = (roomName) =>
+  apiClient.get(`/user/roomname/${roomName}`);
+export const deleteMessage = (messageId) =>
+  apiClient.patch(`/user/delete/${messageId}`);
+export const editMessage = (messageId, newText) => {
+  return apiClient.patch(`/user/edit/${messageId}`, { text: newText });
+};
