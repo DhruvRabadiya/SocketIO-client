@@ -80,6 +80,16 @@ const ChatPage = () => {
       newSocket.emit("join_private_chat", { roomName });
     });
 
+    // NEW: Listen for generic errors from the backend
+    newSocket.on("error", (error) => {
+      toast.error(error.message || "An error occurred.");
+    });
+
+    // NEW: Listen for the room created confirmation (for debugging)
+    newSocket.on("room_created", (message) => {
+      console.log("Server confirmation:", message);
+    });
+
     newSocket.on("private_message", (confirmedMessage) => {
       setMessages((prevMessages) => {
         const tempMessageExists = prevMessages.some(
