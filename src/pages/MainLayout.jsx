@@ -10,7 +10,10 @@ const MainLayout = () => {
   const { user, logout } = useAuth();
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const { pathname } = useLocation();
-  const isChatOpen = pathname.includes("/chat/");
+
+  // ✅ FIX: Make sure to check for BOTH '/chat/' and '/group/' in the URL
+  const isChatOpen =
+    pathname.includes("/chat/") || pathname.includes("/group/");
 
   return (
     <div className="flex h-screen w-full font-sans">
@@ -47,8 +50,7 @@ const MainLayout = () => {
           md:flex
         `}
       >
-        <Outlet />{" "}
-        {/* Child routes (ChatPage or Placeholder) will render here */}
+        <Outlet />
       </main>
     </div>
   );

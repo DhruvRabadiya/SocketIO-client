@@ -52,6 +52,7 @@ function App() {
             <Route index element={<ChatPlaceholder />} />
             {/* The dynamic route shows the chat page */}
             <Route path="chat/:userId" element={<ChatPage />} />
+             <Route path="group/:groupId" element={<ChatPage />} />
           </Route>
         </Routes>
       </Router>
