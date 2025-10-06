@@ -35,7 +35,7 @@ const MainLayout = () => {
           <button
             onClick={logout}
             title="Logout"
-            className="rounded-lg p-3 text-gray-400 transition-colors hover:bg-red-500 hover:text-white"
+            className="cursor-pointer rounded-lg p-3 text-gray-400 transition-colors hover:bg-red-500 hover:text-white"
           >
             <FaSignOutAlt size={20} />
           </button>

@@ -24,7 +24,7 @@ import Avatar from "../components/Avatar";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import AddMemberModal from "../components/AddMemberModal";
 import TypingIndicator from "../components/TypingIndicator";
-
+import TextareaAutosize from 'react-textarea-autosize';
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
   const { user: currentUser, socket, onlineUsers } = useAuth();
@@ -480,20 +480,24 @@ const ChatPage = () => {
         </div>
 
         <footer className="shrink-0 border-t bg-gray-50 p-4">
-          <div className="relative">
-            <input
-              type="text"
+          <div className="relative flex items-end gap-2">
+            <TextareaAutosize
               value={newMessage}
               onChange={handleNewMessageChange}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSend();
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
               }}
               placeholder="Type a message..."
-              className="w-full rounded-full border bg-white py-3 pl-5 pr-14 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full resize-none rounded-xl border bg-white px-4 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              rows={1}
+              maxRows={5}
             />
             <button
               onClick={handleSend}
-              className="absolute inset-y-0 right-0 flex cursor-pointer items-center rounded-full bg-blue-600 px-5 text-white transition hover:bg-blue-700 disabled:bg-blue-300"
+              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:bg-blue-300"
               disabled={!newMessage.trim()}
             >
               <FaPaperPlane size={18} />
