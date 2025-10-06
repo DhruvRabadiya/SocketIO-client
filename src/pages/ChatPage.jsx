@@ -279,7 +279,7 @@ const ChatPage = () => {
               <h2 className="text-lg font-bold text-gray-800">
                 {chatPartner.name}
               </h2>
-              {isGroupChat && (
+              {isGroupChat && chatPartner.participants && (
                 <p className="text-xs text-gray-500">
                   {chatPartner.participants.length} members
                 </p>
