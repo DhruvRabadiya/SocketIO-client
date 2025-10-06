@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 import {
   getUserById,
@@ -24,6 +23,7 @@ import Spinner from "../components/Spinner";
 import Avatar from "../components/Avatar";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import AddMemberModal from "../components/AddMemberModal";
+import TypingIndicator from "../components/TypingIndicator";
 
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
@@ -37,32 +37,37 @@ const ChatPage = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [editText, setEditText] = useState("");
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [typingUsers, setTypingUsers] = useState([]);
   const chatEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
   const isGroupChat = !!groupId;
+  const roomName = chatPartner
+    ? isGroupChat
+      ? chatPartner._id
+      : [currentUser.id, chatPartner._id].sort().join("-")
+    : null;
 
   const fetchChatPartnerDetails = () => {
     if (isGroupChat) {
       getGroupById(groupId)
         .then((response) => {
-          if (response.data?.group) {
+          if (response.data?.group)
             setChatPartner({
               ...response.data.group,
               name: response.data.group.groupName,
             });
-          }
         })
         .catch(console.error);
     } else {
       getUserById(recipientId)
         .then((response) => {
-          if (response.data?.user?.[0]) {
+          if (response.data?.user?.[0])
             setChatPartner({
               ...response.data.user[0],
               name: response.data.user[0].username,
             });
-          }
         })
         .catch(console.error);
     }
@@ -75,6 +80,7 @@ const ChatPage = () => {
     setEditingMessage(null);
     setEditText("");
     setSelectedMessage(null);
+    setTypingUsers([]);
     fetchChatPartnerDetails();
   }, [recipientId, groupId]);
 
@@ -90,7 +96,6 @@ const ChatPage = () => {
         setMessages(response.data);
       } catch (error) {
         console.error("Failed to fetch chat history", error);
-        setMessages([]);
       } finally {
         setLoadingHistory(false);
       }
@@ -99,15 +104,16 @@ const ChatPage = () => {
   }, [currentUser, chatPartner, isGroupChat]);
 
   useEffect(() => {
-    if (!socket || !currentUser?.id || !chatPartner?._id) return;
-    const roomName = isGroupChat
-      ? chatPartner._id
-      : [currentUser.id, chatPartner._id].sort().join("-");
+    if (!socket || !roomName) return;
 
     socket.emit("join_private_chat", { roomName, isGroupChat });
 
-    const privateMessageHandler = (msg) =>
-      setMessages((prev) => [...prev, msg]);
+    const privateMessageHandler = (message) => {
+      setTypingUsers((prev) =>
+        prev.filter((u) => u !== message.senderUsername)
+      );
+      setMessages((prev) => [...prev, message]);
+    };
     const deletedHandler = ({ messageId }) =>
       setMessages((prev) =>
         prev.map((msg) =>
@@ -122,29 +128,56 @@ const ChatPage = () => {
             : msg
         )
       );
+    const typingHandler = ({ username }) =>
+      setTypingUsers((prev) => [...new Set([...prev, username])]);
+    const stopTypingHandler = ({ username }) =>
+      setTypingUsers((prev) => prev.filter((u) => u !== username));
 
     socket.on("private_message", privateMessageHandler);
     socket.on("message_deleted", deletedHandler);
     socket.on("message_edited", editedHandler);
+    socket.on("user_is_typing", typingHandler);
+    socket.on("user_stopped_typing", stopTypingHandler);
 
     return () => {
       socket.emit("leave_room", { roomName });
       socket.off("private_message", privateMessageHandler);
       socket.off("message_deleted", deletedHandler);
       socket.off("message_edited", editedHandler);
+      socket.off("user_is_typing", typingHandler);
+      socket.off("user_stopped_typing", stopTypingHandler);
     };
-  }, [socket, currentUser, chatPartner, isGroupChat]);
+  }, [socket, roomName, isGroupChat]);
+
+  const handleNewMessageChange = (e) => {
+    setNewMessage(e.target.value);
+
+    if (!socket || !roomName) return;
+    if (typingTimeoutRef.current === null) {
+      socket.emit("start_typing", { roomName });
+    } else {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stop_typing", { roomName });
+      typingTimeoutRef.current = null;
+    }, 1500);
+  };
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, typingUsers]);
 
   const handleSend = async () => {
-    if (!newMessage.trim() || !socket || !currentUser?.id || !chatPartner?._id)
-      return;
-    const roomName = isGroupChat
-      ? chatPartner._id
-      : [currentUser.id, chatPartner._id].sort().join("-");
+    if (!newMessage.trim() || !socket || !roomName) return;
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    socket.emit("stop_typing", { roomName });
+
     const tempId = `${Date.now()}-${Math.random()}`;
     const messageObj = {
       senderId: currentUser.id,
@@ -182,11 +215,8 @@ const ChatPage = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!selectedMessage) return;
+    if (!selectedMessage || !socket || !roomName) return;
     const messageId = selectedMessage._id;
-    const roomName = isGroupChat
-      ? chatPartner._id
-      : [currentUser.id, chatPartner._id].sort().join("-");
     setMessages((prev) =>
       prev.map((msg) =>
         msg._id === messageId ? { ...msg, text: null, isDeleted: true } : msg
@@ -196,7 +226,6 @@ const ChatPage = () => {
     try {
       await deleteMessage(messageId);
       socket.emit("delete_message", { messageId, roomName });
-      toast.success("Message deleted!");
     } catch (error) {
       toast.error("Failed to delete message.");
       setMessages((prev) =>
@@ -215,12 +244,9 @@ const ChatPage = () => {
   };
 
   const handleSaveEdit = async () => {
-    if (!editingMessage || !editText.trim()) return;
+    if (!editingMessage || !editText.trim() || !socket || !roomName) return;
     const originalMessage = editingMessage;
     const messageId = editingMessage._id;
-    const roomName = isGroupChat
-      ? chatPartner._id
-      : [currentUser.id, chatPartner._id].sort().join("-");
     setMessages((prev) =>
       prev.map((msg) =>
         msg._id === messageId ? { ...msg, text: editText, isEdited: true } : msg
@@ -248,6 +274,20 @@ const ChatPage = () => {
     return <Spinner />;
   }
 
+  const otherTypingUsers = typingUsers.filter(
+    (u) => u !== currentUser.username
+  );
+
+  const typingDisplay = () => {
+    if (otherTypingUsers.length === 1)
+      return `${otherTypingUsers[0]} is typing`;
+    if (otherTypingUsers.length === 2)
+      return `${otherTypingUsers[0]} and ${otherTypingUsers[1]} are typing`;
+    if (otherTypingUsers.length > 2)
+      return `${otherTypingUsers.length} people are typing`;
+    return null;
+  };
+
   let onlineStatusText = null;
   if (isGroupChat && chatPartner.participants) {
     const onlineCount = chatPartner.participants.filter((p) =>
@@ -261,14 +301,12 @@ const ChatPage = () => {
 
   return (
     <>
-      {isGroupChat && (
-        <AddMemberModal
-          isOpen={isAddMemberModalOpen}
-          onClose={() => setIsAddMemberModalOpen(false)}
-          group={chatPartner}
-          onMembersAdded={fetchChatPartnerDetails}
-        />
-      )}
+      <AddMemberModal
+        isOpen={isAddMemberModalOpen}
+        onClose={() => setIsAddMemberModalOpen(false)}
+        group={chatPartner}
+        onMembersAdded={fetchChatPartnerDetails}
+      />
       <div className="flex h-full flex-col font-sans">
         <header className="flex shrink-0 items-center justify-between border-b bg-white p-4">
           <div className="flex items-center gap-4">
@@ -288,7 +326,8 @@ const ChatPage = () => {
               {onlineStatusText && (
                 <p
                   className={`text-xs ${
-                    onlineStatusText.includes("Online")
+                    onlineStatusText.includes("Online") ||
+                    onlineStatusText.includes("online")
                       ? "text-green-500"
                       : "text-gray-500"
                   }`}
@@ -317,7 +356,6 @@ const ChatPage = () => {
               messages.map((msg) => {
                 const isMyMessage = msg.me || msg.senderId === currentUser.id;
                 const isEditing = editingMessage?._id === msg._id;
-
                 return (
                   <div
                     key={msg._id}
@@ -386,7 +424,7 @@ const ChatPage = () => {
                       <span className="px-2 pt-1 text-xs text-gray-400">
                         {formatTime(
                           msg.addedAt || msg.modifiedAt || Date.now()
-                        )}
+                        )}{" "}
                         {msg.isEdited && !msg.isDeleted && (
                           <em className="ml-1">(edited)</em>
                         )}
@@ -412,8 +450,33 @@ const ChatPage = () => {
                 );
               })
             )}
+
+            {otherTypingUsers.length > 0 && (
+              <div className="group flex items-start gap-2.5 justify-start">
+                {isGroupChat && otherTypingUsers[0] && (
+                  <Avatar username={otherTypingUsers[0]} />
+                )}
+                <div className="flex flex-col items-start">
+                  <div
+                    className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white`}
+                  >
+                    {isGroupChat ? (
+                      <div className="flex flex-col items-start">
+                        <TypingIndicator />
+                        <p className="pt-1 text-xs font-bold text-blue-300">
+                          {typingDisplay()}
+                        </p>
+                      </div>
+                    ) : (
+                      <TypingIndicator />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={chatEndRef} />
           </div>
-          <div ref={chatEndRef} />
         </div>
 
         <footer className="shrink-0 border-t bg-gray-50 p-4">
@@ -421,7 +484,7 @@ const ChatPage = () => {
             <input
               type="text"
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={handleNewMessageChange}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleSend();
               }}
@@ -440,7 +503,7 @@ const ChatPage = () => {
 
         {isConfirmModalOpen && (
           <div
-            className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-opacity-50"
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
             onClick={handleCloseConfirmModal}
           >
             <div

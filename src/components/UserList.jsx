@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getAllUsers, getUserGroups } from "../services/api";
 import { toast } from "react-hot-toast";
@@ -15,6 +15,8 @@ const UserList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("directs");
+
+  const { pathname } = useLocation();
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -40,6 +42,14 @@ const UserList = () => {
       fetchData();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/group")) {
+      setActiveTab("groups");
+    } else {
+      setActiveTab("directs");
+    }
+  }, [pathname]);
 
   const handleGroupCreated = () => {
     fetchData();
