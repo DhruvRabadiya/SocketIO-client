@@ -27,12 +27,11 @@ import AddMemberModal from "../components/AddMemberModal";
 
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, socket, onlineUsers } = useAuth();
   const [chatPartner, setChatPartner] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [newMessage, setNewMessage] = useState("");
-  const [socket, setSocket] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -76,7 +75,6 @@ const ChatPage = () => {
     setEditingMessage(null);
     setEditText("");
     setSelectedMessage(null);
-    if (socket) socket.disconnect();
     fetchChatPartnerDetails();
   }, [recipientId, groupId]);
 
@@ -101,46 +99,41 @@ const ChatPage = () => {
   }, [currentUser, chatPartner, isGroupChat]);
 
   useEffect(() => {
-    if (!currentUser?.id || !chatPartner?._id) return;
-    const token = localStorage.getItem("token");
-    const newSocket = io(import.meta.env.VITE_BACKEND_URL, { auth: { token } });
-    setSocket(newSocket);
+    if (!socket || !currentUser?.id || !chatPartner?._id) return;
     const roomName = isGroupChat
       ? chatPartner._id
       : [currentUser.id, chatPartner._id].sort().join("-");
-    newSocket.on("connect", () =>
-      newSocket.emit("join_private_chat", { roomName, isGroupChat })
-    );
-    newSocket.on("private_message", (confirmedMessage) => {
-      setMessages((prev) => {
-        const tempExists = prev.some(
-          (msg) => msg._id === confirmedMessage.tempId
-        );
-        return tempExists
-          ? prev.map((msg) =>
-              msg._id === confirmedMessage.tempId ? confirmedMessage : msg
-            )
-          : [...prev, confirmedMessage];
-      });
-    });
-    newSocket.on("message_deleted", ({ messageId }) =>
+
+    socket.emit("join_private_chat", { roomName, isGroupChat });
+
+    const privateMessageHandler = (msg) =>
+      setMessages((prev) => [...prev, msg]);
+    const deletedHandler = ({ messageId }) =>
       setMessages((prev) =>
         prev.map((msg) =>
           msg._id === messageId ? { ...msg, text: null, isDeleted: true } : msg
         )
-      )
-    );
-    newSocket.on("message_edited", ({ messageId, newText, isEdited }) =>
+      );
+    const editedHandler = ({ messageId, newText }) =>
       setMessages((prev) =>
         prev.map((msg) =>
           msg._id === messageId
             ? { ...msg, text: newText, isEdited: true }
             : msg
         )
-      )
-    );
-    return () => newSocket.disconnect();
-  }, [currentUser, chatPartner, isGroupChat]);
+      );
+
+    socket.on("private_message", privateMessageHandler);
+    socket.on("message_deleted", deletedHandler);
+    socket.on("message_edited", editedHandler);
+
+    return () => {
+      socket.emit("leave_room", { roomName });
+      socket.off("private_message", privateMessageHandler);
+      socket.off("message_deleted", deletedHandler);
+      socket.off("message_edited", editedHandler);
+    };
+  }, [socket, currentUser, chatPartner, isGroupChat]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,6 +180,7 @@ const ChatPage = () => {
     setIsConfirmModalOpen(false);
     setSelectedMessage(null);
   };
+
   const handleConfirmDelete = async () => {
     if (!selectedMessage) return;
     const messageId = selectedMessage._id;
@@ -219,6 +213,7 @@ const ChatPage = () => {
     setEditingMessage(null);
     setEditText("");
   };
+
   const handleSaveEdit = async () => {
     if (!editingMessage || !editText.trim()) return;
     const originalMessage = editingMessage;
@@ -253,6 +248,17 @@ const ChatPage = () => {
     return <Spinner />;
   }
 
+  let onlineStatusText = null;
+  if (isGroupChat && chatPartner.participants) {
+    const onlineCount = chatPartner.participants.filter((p) =>
+      onlineUsers.includes(p)
+    ).length;
+    onlineStatusText = `${onlineCount} of ${chatPartner.participants.length} members online`;
+  } else if (!isGroupChat && chatPartner._id) {
+    const isOnline = onlineUsers.includes(chatPartner._id);
+    onlineStatusText = isOnline ? "Online" : "Offline";
+  }
+
   return (
     <>
       {isGroupChat && (
@@ -279,9 +285,15 @@ const ChatPage = () => {
               <h2 className="text-lg font-bold text-gray-800">
                 {chatPartner.name}
               </h2>
-              {isGroupChat && chatPartner.participants && (
-                <p className="text-xs text-gray-500">
-                  {chatPartner.participants.length} members
+              {onlineStatusText && (
+                <p
+                  className={`text-xs ${
+                    onlineStatusText.includes("Online")
+                      ? "text-green-500"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {onlineStatusText}
                 </p>
               )}
             </div>
@@ -428,7 +440,7 @@ const ChatPage = () => {
 
         {isConfirmModalOpen && (
           <div
-            className="absolute inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
+            className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-opacity-50"
             onClick={handleCloseConfirmModal}
           >
             <div

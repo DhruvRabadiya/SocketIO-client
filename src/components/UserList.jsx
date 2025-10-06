@@ -9,12 +9,11 @@ import Spinner from "./Spinner";
 import CreateGroupModal from "./CreateGroupModal";
 
 const UserList = () => {
-  const { user } = useAuth();
+  const { user, socket, onlineUsers } = useAuth();
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // 1. Set the default active tab to 'directs'
   const [activeTab, setActiveTab] = useState("directs");
 
   const fetchData = async () => {
@@ -24,11 +23,9 @@ const UserList = () => {
         getAllUsers(),
         getUserGroups(),
       ]);
-
       const otherUsers = user?.id
         ? usersResponse.data.getAllusers.filter((u) => u._id !== user.id)
         : usersResponse.data.getAllusers;
-
       setUsers(otherUsers);
       setGroups(groupsResponse.data.groups);
     } catch (error) {
@@ -53,7 +50,7 @@ const UserList = () => {
       onClick={() => setActiveTab(tabName)}
       className={`cursor-pointer flex flex-1 items-center justify-center gap-2 p-3 text-sm font-semibold transition-colors ${
         activeTab === tabName
-          ? "border-b-2 border-blue-500 text-blue-500"
+          ? "border-b-2 border-blue-500 text-white"
           : "border-b-2 border-transparent text-gray-400 hover:text-gray-200"
       }`}
     >
@@ -82,7 +79,6 @@ const UserList = () => {
               New Group
             </button>
           </div>
-          {/* 2. Reorder the tab buttons to show Direct Messages first */}
           <div className="mt-4 flex border-b border-gray-700">
             <TabButton
               tabName="directs"
@@ -104,37 +100,14 @@ const UserList = () => {
             </div>
           ) : (
             <>
-              {/* 3. Reorder the content blocks to match the new tab order */}
-              {/* Direct Messages List */}
               {activeTab === "directs" && (
                 <ul>
-                  {users.map((chatUser) => (
-                    <li key={chatUser._id}>
-                      <NavLink
-                        to={`/chat/${chatUser._id}`}
-                        className={({ isActive }) =>
-                          `flex items-center gap-4 px-6 py-4 transition-colors ${
-                            isActive ? "bg-gray-900/50" : "hover:bg-gray-700/50"
-                          }`
-                        }
-                      >
-                        <Avatar username={chatUser.username} />
-                        <p className="text-lg font-medium text-gray-200">
-                          {chatUser.username}
-                        </p>
-                      </NavLink>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {/* Groups List */}
-              {activeTab === "groups" && (
-                <ul>
-                  {groups.length > 0 ? (
-                    groups.map((group) => (
-                      <li key={group._id}>
+                  {users.map((chatUser) => {
+                    const isOnline = onlineUsers.includes(chatUser._id);
+                    return (
+                      <li key={chatUser._id}>
                         <NavLink
-                          to={`/group/${group._id}`}
+                          to={`/chat/${chatUser._id}`}
                           className={({ isActive }) =>
                             `flex items-center gap-4 px-6 py-4 transition-colors ${
                               isActive
@@ -143,13 +116,76 @@ const UserList = () => {
                             }`
                           }
                         >
-                          <Avatar username={group.groupName} />
+                          <div className="relative shrink-0">
+                            <Avatar username={chatUser.username} />
+                            {isOnline ? (
+                              <div
+                                className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-gray-800 bg-green-500"
+                                title="Online"
+                              ></div>
+                            ) : (
+                              <div
+                                className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-gray-800 bg-gray-500"
+                                title="Offline"
+                              ></div>
+                            )}
+                          </div>
                           <p className="text-lg font-medium text-gray-200">
-                            {group.groupName}
+                            {chatUser.username}
                           </p>
                         </NavLink>
                       </li>
-                    ))
+                    );
+                  })}
+                </ul>
+              )}
+              {activeTab === "groups" && (
+                <ul>
+                  {groups.length > 0 ? (
+                    groups.map((group) => {
+                      const onlineMembersInGroup = group.participants.filter(
+                        (p) => onlineUsers.includes(p)
+                      );
+                      const otherOnlineMembersCount =
+                        onlineMembersInGroup.filter(
+                          (id) => id !== user.id
+                        ).length;
+
+                      return (
+                        <li key={group._id}>
+                          <NavLink
+                            to={`/group/${group._id}`}
+                            className={({ isActive }) =>
+                              `flex items-center gap-4 px-6 py-4 transition-colors ${
+                                isActive
+                                  ? "bg-gray-900/50"
+                                  : "hover:bg-gray-700/50"
+                              }`
+                            }
+                          >
+                            <Avatar username={group.groupName} />
+                            <div className="flex-grow">
+                              <p className="text-lg font-medium text-gray-200">
+                                {group.groupName}
+                              </p>
+                              {otherOnlineMembersCount > 0 ? (
+                                <div className="flex items-center gap-1.5 text-xs text-green-400">
+                                  <span className="relative flex h-2 w-2">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                                  </span>
+                                  {otherOnlineMembersCount} online
+                                </div>
+                              ) : (
+                                <p className="truncate text-xs text-gray-400">
+                                  No one else is online
+                                </p>
+                              )}
+                            </div>
+                          </NavLink>
+                        </li>
+                      );
+                    })
                   ) : (
                     <p className="px-6 py-4 text-center text-sm text-gray-400">
                       No groups yet. Create one!
