@@ -38,10 +38,10 @@ export const getGroupById = (groupId) =>
 export const createMessage = (messageData) =>
   apiClient.post("/user/messages", messageData);
 // UPDATED: This function now handles both DM and group history
-export const getChatHistory = (id, isGroupChat) => {
+export const getChatHistory = (id, isGroupChat, pageNo = 1) => {
   const endpoint = isGroupChat
-    ? `/user/group/messages/${id}`
-    : `/user/roomname/${id}`;
+    ? `/user/group/messages/${id}?pageNo=${pageNo}`
+    : `/user/roomname/${id}?pageNo=${pageNo}`;
   return apiClient.get(endpoint);
 };
 export const deleteMessage = (messageId) =>

@@ -24,7 +24,8 @@ import Avatar from "../components/Avatar";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import AddMemberModal from "../components/AddMemberModal";
 import TypingIndicator from "../components/TypingIndicator";
-import TextareaAutosize from 'react-textarea-autosize';
+import TextareaAutosize from "react-textarea-autosize";
+
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
   const { user: currentUser, socket, onlineUsers } = useAuth();
@@ -38,8 +39,13 @@ const ChatPage = () => {
   const [editText, setEditText] = useState("");
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
-  const chatEndRef = useRef(null);
+  const [page, setPage] = useState(1);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const messageContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const chatEndRef = useRef(null);
+  const isPaginating = useRef(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
   const isGroupChat = !!groupId;
@@ -81,33 +87,38 @@ const ChatPage = () => {
     setEditText("");
     setSelectedMessage(null);
     setTypingUsers([]);
+    setPage(1);
+    setHasMoreMessages(true);
     fetchChatPartnerDetails();
   }, [recipientId, groupId]);
 
   useEffect(() => {
     if (!currentUser?.id || !chatPartner?._id) return;
-    const fetchHistory = async () => {
+    const fetchInitialHistory = async () => {
       setLoadingHistory(true);
       try {
         const idToFetch = isGroupChat
           ? chatPartner._id
           : [currentUser.id, chatPartner._id].sort().join("-");
-        const response = await getChatHistory(idToFetch, isGroupChat);
-        setMessages(response.data);
+        const response = await getChatHistory(idToFetch, isGroupChat, 1);
+        setMessages(response.data.data.reverse());
+        setHasMoreMessages(
+          response.data.pagination.currentPage <
+            response.data.pagination.totalPages
+        );
+        setPage(1);
       } catch (error) {
         console.error("Failed to fetch chat history", error);
       } finally {
         setLoadingHistory(false);
       }
     };
-    fetchHistory();
+    fetchInitialHistory();
   }, [currentUser, chatPartner, isGroupChat]);
 
   useEffect(() => {
     if (!socket || !roomName) return;
-
     socket.emit("join_private_chat", { roomName, isGroupChat });
-
     const privateMessageHandler = (message) => {
       setTypingUsers((prev) =>
         prev.filter((u) => u !== message.senderUsername)
@@ -132,13 +143,11 @@ const ChatPage = () => {
       setTypingUsers((prev) => [...new Set([...prev, username])]);
     const stopTypingHandler = ({ username }) =>
       setTypingUsers((prev) => prev.filter((u) => u !== username));
-
     socket.on("private_message", privateMessageHandler);
     socket.on("message_deleted", deletedHandler);
     socket.on("message_edited", editedHandler);
     socket.on("user_is_typing", typingHandler);
     socket.on("user_stopped_typing", stopTypingHandler);
-
     return () => {
       socket.emit("leave_room", { roomName });
       socket.off("private_message", privateMessageHandler);
@@ -149,35 +158,74 @@ const ChatPage = () => {
     };
   }, [socket, roomName, isGroupChat]);
 
+  useEffect(() => {
+    if (isPaginating.current) return;
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, typingUsers]);
+
   const handleNewMessageChange = (e) => {
     setNewMessage(e.target.value);
-
     if (!socket || !roomName) return;
     if (typingTimeoutRef.current === null) {
       socket.emit("start_typing", { roomName });
     } else {
       clearTimeout(typingTimeoutRef.current);
     }
-
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("stop_typing", { roomName });
       typingTimeoutRef.current = null;
     }, 1500);
   };
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typingUsers]);
+  const loadMoreMessages = async () => {
+    if (isFetchingMore || !hasMoreMessages) return;
+
+    isPaginating.current = true;
+    setIsFetchingMore(true);
+    const container = messageContainerRef.current;
+    const oldScrollHeight = container.scrollHeight;
+    const nextPage = page + 1;
+
+    try {
+      const idToFetch = isGroupChat
+        ? chatPartner._id
+        : [currentUser.id, chatPartner._id].sort().join("-");
+      const response = await getChatHistory(idToFetch, isGroupChat, nextPage);
+      const newMessages = response.data.data.reverse();
+
+      setMessages((prev) => [...newMessages, ...prev]);
+      setPage(nextPage);
+      setHasMoreMessages(
+        response.data.pagination.currentPage <
+          response.data.pagination.totalPages
+      );
+
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight - oldScrollHeight;
+      });
+    } catch (error) {
+      toast.error("Failed to load older messages.");
+    } finally {
+      setIsFetchingMore(false);
+      setTimeout(() => {
+        isPaginating.current = false;
+      }, 100);
+    }
+  };
+
+  const handleScroll = () => {
+    if (messageContainerRef.current?.scrollTop === 0) {
+      loadMoreMessages();
+    }
+  };
 
   const handleSend = async () => {
     if (!newMessage.trim() || !socket || !roomName) return;
-
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
     }
     socket.emit("stop_typing", { roomName });
-
     const tempId = `${Date.now()}-${Math.random()}`;
     const messageObj = {
       senderId: currentUser.id,
@@ -277,7 +325,6 @@ const ChatPage = () => {
   const otherTypingUsers = typingUsers.filter(
     (u) => u !== currentUser.username
   );
-
   const typingDisplay = () => {
     if (otherTypingUsers.length === 1)
       return `${otherTypingUsers[0]} is typing`;
@@ -348,10 +395,26 @@ const ChatPage = () => {
           )}
         </header>
 
-        <div className="flex-grow overflow-y-auto bg-gray-100 p-6">
+        <div
+          ref={messageContainerRef}
+          onScroll={handleScroll}
+          className="flex-grow overflow-y-auto bg-gray-100 p-6"
+        >
           <div className="flex flex-col gap-4">
+            {isFetchingMore && (
+              <div className="py-4">
+                <Spinner />
+              </div>
+            )}
+            {!hasMoreMessages && !loadingHistory && (
+              <p className="text-center text-sm text-gray-500">
+                This is the beginning of your conversation.
+              </p>
+            )}
             {loadingHistory ? (
-              <Spinner />
+              <div className="flex h-full items-center justify-center">
+                <Spinner />
+              </div>
             ) : (
               messages.map((msg) => {
                 const isMyMessage = msg.me || msg.senderId === currentUser.id;
@@ -474,7 +537,6 @@ const ChatPage = () => {
                 </div>
               </div>
             )}
-
             <div ref={chatEndRef} />
           </div>
         </div>
@@ -504,10 +566,9 @@ const ChatPage = () => {
             </button>
           </div>
         </footer>
-
         {isConfirmModalOpen && (
           <div
-            className="absolute inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50"
+            className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-opacity-50"
             onClick={handleCloseConfirmModal}
           >
             <div
