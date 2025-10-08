@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
   getUserById,
@@ -9,6 +9,7 @@ import {
   createMessage,
   getGroupById,
   renameGroup,
+  leaveGroup,
 } from "../services/api";
 import { toast } from "react-hot-toast";
 import {
@@ -22,7 +23,6 @@ import {
 } from "react-icons/fa";
 import Spinner from "../components/Spinner";
 import Avatar from "../components/Avatar";
-import { useMediaQuery } from "../hooks/useMediaQuery";
 import AddMemberModal from "../components/AddMemberModal";
 import TypingIndicator from "../components/TypingIndicator";
 import TextareaAutosize from "react-textarea-autosize";
@@ -43,6 +43,7 @@ const ChatPage = () => {
   const [newMessage, setNewMessage] = useState("");
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
   const [editText, setEditText] = useState("");
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
@@ -54,7 +55,7 @@ const ChatPage = () => {
   const typingTimeoutRef = useRef(null);
   const isPaginating = useRef(false);
   const chatEndRef = useRef(null);
-  const isDesktop = useMediaQuery("(min-width: 768px)");
+  const navigate = useNavigate();
 
   const isGroupChat = !!groupId;
   const roomName = chatPartner
@@ -147,7 +148,7 @@ const ChatPage = () => {
           msg._id === messageId ? { ...msg, text: null, isDeleted: true } : msg
         )
       );
-    const editedHandler = ({ messageId, newText, isEdited }) =>
+    const editedHandler = ({ messageId, newText }) =>
       setMessages((prev) =>
         prev.map((msg) =>
           msg._id === messageId
@@ -169,12 +170,22 @@ const ChatPage = () => {
         setMessages((prev) => [...prev, { ...newMessage, isSystem: true }]);
       }
     };
+    const memberLeftHandler = ({ groupId, updatedGroup, newMessage }) => {
+      if (isGroupChat && chatPartner?._id === groupId) {
+        setChatPartner((prev) => ({
+          ...prev,
+          participants: updatedGroup.participants,
+        }));
+        setMessages((prev) => [...prev, { ...newMessage, isSystem: true }]);
+      }
+    };
     socket.on("private_message", privateMessageHandler);
     socket.on("message_deleted", deletedHandler);
     socket.on("message_edited", editedHandler);
     socket.on("user_is_typing", typingHandler);
     socket.on("user_stopped_typing", stopTypingHandler);
     socket.on("group_renamed", groupRenamedHandler);
+    socket.on("member_left", memberLeftHandler);
     return () => {
       socket.emit("leave_room", { roomName });
       socket.off("private_message", privateMessageHandler);
@@ -183,6 +194,7 @@ const ChatPage = () => {
       socket.off("user_is_typing", typingHandler);
       socket.off("user_stopped_typing", stopTypingHandler);
       socket.off("group_renamed", groupRenamedHandler);
+      socket.off("member_left", memberLeftHandler);
     };
   }, [socket, roomName, isGroupChat, chatPartner]);
 
@@ -190,7 +202,6 @@ const ChatPage = () => {
     if (isPaginating.current) return;
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingUsers]);
-
   const handleNewMessageChange = (e) => {
     setNewMessage(e.target.value);
     if (!socket || !roomName) return;
@@ -204,7 +215,6 @@ const ChatPage = () => {
       typingTimeoutRef.current = null;
     }, 1500);
   };
-
   const loadMoreMessages = async () => {
     if (isFetchingMore || !hasMoreMessages) return;
     isPaginating.current = true;
@@ -282,7 +292,6 @@ const ChatPage = () => {
     setIsConfirmModalOpen(false);
     setSelectedMessage(null);
   };
-
   const handleConfirmDelete = async () => {
     if (!selectedMessage || !socket || !roomName) return;
     const messageId = selectedMessage._id;
@@ -302,7 +311,6 @@ const ChatPage = () => {
       );
     }
   };
-
   const handleStartEdit = (message) => {
     setEditingMessage(message);
     setEditText(message.text);
@@ -311,7 +319,6 @@ const ChatPage = () => {
     setEditingMessage(null);
     setEditText("");
   };
-
   const handleSaveEdit = async () => {
     if (!editingMessage || !editText.trim() || !socket || !roomName) return;
     const originalMessage = editingMessage;
@@ -379,18 +386,40 @@ const ChatPage = () => {
       hour: "2-digit",
       minute: "2-digit",
     });
-
   const otherTypingUsers = typingUsers.filter(
     (u) => u !== currentUser.username
   );
   const typingDisplay = () => {
-    if (otherTypingUsers.length === 1)
+     if (otherTypingUsers.length === 1)
       return `${otherTypingUsers[0]} is typing`;
     if (otherTypingUsers.length > 2)
       return `${otherTypingUsers.length} people are typing`;
     if (otherTypingUsers.length > 1)
       return `${otherTypingUsers.join(" and ")} are typing`;
     return null;
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!isGroupChat || !chatPartner || !socket) return;
+    const tempId = `leave_${Date.now()}`;
+    try {
+      const response = await leaveGroup(chatPartner._id, tempId);
+      const { groupDetail: updatedGroup, newMessage } = response.data;
+
+      socket.emit("leave_group", {
+        groupId: chatPartner._id,
+        updatedGroup,
+        newMessage,
+      });
+
+      updateGroups((prev) => prev.filter((g) => g._id !== chatPartner._id));
+      toast.success(`You have left the group "${chatPartner.name}"`);
+      navigate("/");
+    } catch (error) {
+      toast.error("Failed to leave group.");
+    } finally {
+      setIsLeaveModalOpen(false);
+    }
   };
 
   if (!chatPartner && loadingHistory) {
@@ -409,6 +438,36 @@ const ChatPage = () => {
         group={chatPartner}
         onMembersAdded={fetchChatPartnerDetails}
       />
+      {isLeaveModalOpen && (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setIsLeaveModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold">Leave Group</h2>
+            <p className="mt-2 text-gray-600">
+              Are you sure you want to leave "{chatPartner?.name}"?
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setIsLeaveModalOpen(false)}
+                className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 font-semibold text-gray-800 transition hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLeaveGroup}
+                className="cursor-pointer rounded-md bg-red-600 px-4 py-2 font-semibold text-white transition hover:bg-red-700"
+              >
+                Yes, Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex h-full flex-col font-sans">
         <ChatHeader
           chatPartner={chatPartner}
@@ -416,168 +475,168 @@ const ChatPage = () => {
           onlineUsers={onlineUsers}
           onAddMemberClick={() => setIsAddMemberModalOpen(true)}
           onSaveRename={handleSaveRename}
+          onLeaveGroup={() => setIsLeaveModalOpen(true)}
         />
         <div
           ref={messageContainerRef}
           onScroll={handleScroll}
-          className="flex h-full flex-grow flex-col overflow-y-auto bg-gray-100"
+          className="flex-grow overflow-y-auto bg-gray-100 p-6"
         >
-          <div className="p-6">
-            <div className="flex flex-col gap-4">
-              {isFetchingMore && (
-                <div className="py-4">
-                  <Spinner />
-                </div>
-              )}
-              {!hasMoreMessages && !loadingHistory && (
-                <p className="text-center text-sm text-gray-500">
-                  This is the beginning of your conversation.
-                </p>
-              )}
-              {loadingHistory ? (
-                <div className="flex h-full flex-1 items-center justify-center">
-                  <Spinner />
-                </div>
-              ) : (
-                messages.map((msg) => {
-                  const isSystemMessage =
-                    msg.isSystem ||
-                    String(msg.tempId).startsWith("rename_") ||
-                    String(msg._id).startsWith("rename_");
-                  if (isSystemMessage) {
-                    return (
-                      <div
-                        key={msg._id}
-                        className="py-2 text-center text-xs text-gray-500 italic"
-                      >
-                        {msg.text}
-                      </div>
-                    );
-                  }
-                  const isMyMessage = msg.me || msg.senderId === currentUser.id;
-                  const isEditing = editingMessage?._id === msg._id;
+          <div className="flex flex-col gap-4">
+            {isFetchingMore && (
+              <div className="py-4">
+                <Spinner />
+              </div>
+            )}
+            {!hasMoreMessages && !loadingHistory && (
+              <p className="text-center text-sm text-gray-500">
+                This is the beginning of your conversation.
+              </p>
+            )}
+            {loadingHistory ? (
+              <div className="flex h-full items-center justify-center">
+                <Spinner />
+              </div>
+            ) : (
+              messages.map((msg) => {
+                const isSystemMessage =
+                  msg.isSystem ||
+                  String(msg.tempId).startsWith("rename_") ||
+                  String(msg._id).startsWith("rename_") ||
+                  String(msg.tempId).startsWith("leave_");
+                if (isSystemMessage) {
                   return (
                     <div
                       key={msg._id}
-                      className={`group flex items-start gap-2.5 ${
-                        isMyMessage ? "justify-end" : "justify-start"
-                      }`}
+                      className="py-2 text-center text-xs text-gray-500 italic"
                     >
-                      {!isMyMessage && isGroupChat && (
-                        <Avatar username={msg.senderUsername} />
-                      )}
-                      <div
-                        className={`flex flex-col ${
-                          isMyMessage ? "items-end" : "items-start"
-                        }`}
-                      >
-                        <div
-                          className={`max-w-lg rounded-2xl px-4 py-3 shadow-md ${
-                            isMyMessage
-                              ? "rounded-br-none bg-blue-600 text-white"
-                              : "rounded-bl-none bg-gray-700 text-white"
-                          }`}
-                        >
-                          {!isMyMessage && isGroupChat && (
-                            <strong className="block text-xs font-bold text-blue-300">
-                              {msg.senderUsername}
-                            </strong>
-                          )}
-                          {isEditing ? (
-                            <div>
-                              <input
-                                type="text"
-                                value={editText}
-                                onChange={(e) => setEditText(e.target.value)}
-                                className="w-full rounded border-b border-white/50 bg-transparent text-white outline-none"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleSaveEdit();
-                                  if (e.key === "Escape") handleCancelEdit();
-                                }}
-                              />
-                              <div className="mt-2 flex justify-end gap-3 text-xs">
-                                <button
-                                  onClick={handleCancelEdit}
-                                  className="cursor-pointer hover:underline"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={handleSaveEdit}
-                                  className="cursor-pointer font-bold hover:underline"
-                                >
-                                  Save
-                                </button>
-                              </div>
-                            </div>
-                          ) : msg.isDeleted ? (
-                            <p className="italic text-gray-400">
-                              This message was deleted
-                            </p>
-                          ) : (
-                            <p className="text-base whitespace-pre-wrap break-words">
-                              {msg.text}
-                            </p>
-                          )}
-                        </div>
-                        <span className="px-2 pt-1 text-xs text-gray-400">
-                          {formatTime(
-                            msg.addedAt || msg.modifiedAt || Date.now()
-                          )}{" "}
-                          {msg.isEdited && !msg.isDeleted && (
-                            <em className="ml-1">(edited)</em>
-                          )}
-                        </span>
-                      </div>
-                      {isMyMessage && !msg.isDeleted && !isEditing && (
-                        <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">
-                          <button
-                            onClick={() => handleStartEdit(msg)}
-                            className="cursor-pointer p-1 hover:text-blue-400"
-                          >
-                            <FaEdit />
-                          </button>
-                          <button
-                            onClick={(e) => handleOpenConfirmModal(e, msg)}
-                            className="cursor-pointer p-1 hover:text-red-500"
-                          >
-                            <FaTrash />
-                          </button>
-                        </div>
-                      )}
+                      {msg.text}
                     </div>
                   );
-                })
-              )}
-              {otherTypingUsers.length > 0 && (
-                <div className="group flex items-start gap-2.5 justify-start">
-                  {isGroupChat && otherTypingUsers[0] && (
-                    <Avatar username={otherTypingUsers[0]} />
-                  )}
-                  <div className="flex flex-col items-start">
+                }
+                const isMyMessage = msg.me || msg.senderId === currentUser.id;
+                const isEditing = editingMessage?._id === msg._id;
+                return (
+                  <div
+                    key={msg._id}
+                    className={`group flex items-start gap-2.5 ${
+                      isMyMessage ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                    {!isMyMessage && isGroupChat && (
+                      <Avatar username={msg.senderUsername} />
+                    )}
                     <div
-                      className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white shadow-md`}
+                      className={`flex flex-col ${
+                        isMyMessage ? "items-end" : "items-start"
+                      }`}
                     >
-                      {isGroupChat ? (
-                        <div className="flex flex-col items-start">
-                          <TypingIndicator />
-                          <p className="pt-1 text-xs font-bold text-blue-300">
-                            {typingDisplay()}
+                      <div
+                        className={`max-w-lg rounded-2xl px-4 py-3 shadow-md ${
+                          isMyMessage
+                            ? "rounded-br-none bg-blue-600 text-white"
+                            : "rounded-bl-none bg-gray-700 text-white"
+                        }`}
+                      >
+                        {!isMyMessage && isGroupChat && (
+                          <strong className="block text-xs font-bold text-blue-300">
+                            {msg.senderUsername}
+                          </strong>
+                        )}
+                        {isEditing ? (
+                          <div>
+                            <input
+                              type="text"
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              className="w-full rounded border-b border-white/50 bg-transparent text-white outline-none"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveEdit();
+                                if (e.key === "Escape") handleCancelEdit();
+                              }}
+                            />
+                            <div className="mt-2 flex justify-end gap-3 text-xs">                              
+                              <button
+                                onClick={handleCancelEdit}
+                                className="cursor-pointer hover:underline"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={handleSaveEdit}
+                                className="cursor-pointer font-bold hover:underline"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+                        ) : msg.isDeleted ? (
+                          <p className="italic text-gray-400">
+                            This message was deleted
                           </p>
-                        </div>
-                      ) : (
-                        <TypingIndicator />
-                      )}
+                        ) : (
+                          <p className="text-base whitespace-pre-wrap break-words">
+                            {msg.text}
+                          </p>
+                        )}
+                      </div>
+                      <span className="px-2 pt-1 text-xs text-gray-400">
+                        {formatTime(
+                          msg.addedAt || msg.modifiedAt || Date.now()
+                        )}
+                        {msg.isEdited && !msg.isDeleted && (
+                          <em className="ml-1">(edited)</em>
+                        )}
+                      </span>
                     </div>
+                    {isMyMessage && !msg.isDeleted && !isEditing && (
+                      <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">                       
+                        <button
+                          onClick={() => handleStartEdit(msg)}
+                          className="cursor-pointer p-1 hover:text-blue-400"
+                        >
+                          <FaEdit />
+                        </button>
+                        <button
+                          onClick={(e) => handleOpenConfirmModal(e, msg)}
+                          className="cursor-pointer p-1 hover:text-red-500"
+                        >
+                          <FaTrash />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {otherTypingUsers.length > 0 && (
+              <div className="group flex items-start gap-2.5 justify-start">                
+                {isGroupChat && otherTypingUsers[0] && (
+                  <Avatar username={otherTypingUsers[0]} />
+                )}
+                <div className="flex flex-col items-start">                  
+                  <div
+                    className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white shadow-md`}
+                  >                    
+                    {isGroupChat ? (
+                      <div className="flex flex-col items-start">                       
+                        <TypingIndicator />
+                        <p className="pt-1 text-xs font-bold text-blue-300">
+                          {typingDisplay()}
+                        </p>
+                      </div>
+                    ) : (
+                      <TypingIndicator />
+                    )}
                   </div>
                 </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
           </div>
         </div>
-        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">
+        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">         
           <div className="relative flex items-end gap-2">
             <TextareaAutosize
               value={newMessage}
@@ -606,16 +665,16 @@ const ChatPage = () => {
           <div
             className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={handleCloseConfirmModal}
-          >
+          >            
             <div
               className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
               onClick={(e) => e.stopPropagation()}
-            >
+            >             
               <h2 className="text-lg font-bold">Delete Message</h2>
               <p className="mt-2 text-gray-600">
                 Are you sure you want to permanently delete this message?
               </p>
-              <div className="mt-6 flex justify-end gap-3">
+              <div className="mt-6 flex justify-end gap-3">            
                 <button
                   onClick={handleCloseConfirmModal}
                   className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 font-semibold text-gray-800 transition hover:bg-gray-300"

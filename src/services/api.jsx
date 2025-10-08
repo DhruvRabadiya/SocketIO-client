@@ -57,3 +57,6 @@ export const renameGroup = (groupId, newGroupName, tempId) => {
     tempId: tempId,
   });
 };
+export const leaveGroup = (groupId, tempId) => {
+  return apiClient.patch(`/user/groups/${groupId}/leave`, { tempId });
+};
