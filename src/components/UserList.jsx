@@ -15,7 +15,6 @@ const UserList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("directs");
-
   const { pathname } = useLocation();
 
   const fetchData = async () => {
@@ -50,6 +49,24 @@ const UserList = () => {
       setActiveTab("directs");
     }
   }, [pathname]);
+
+  useEffect(() => {
+    if (socket) {
+      const groupRenamedHandler = ({ updatedGroup }) => {
+        setGroups((prevGroups) =>
+          prevGroups.map((g) =>
+            g._id === updatedGroup._id
+              ? { ...g, groupName: updatedGroup.groupName }
+              : g
+          )
+        );
+      };
+      socket.on("group_renamed", groupRenamedHandler);
+      return () => {
+        socket.off("group_renamed", groupRenamedHandler);
+      };
+    }
+  }, [socket]);
 
   const handleGroupCreated = () => {
     fetchData();
@@ -102,7 +119,6 @@ const UserList = () => {
             />
           </div>
         </div>
-
         <div className="flex-grow overflow-y-auto">
           {isLoading ? (
             <div className="mt-10">
@@ -112,10 +128,12 @@ const UserList = () => {
             <>
               {activeTab === "directs" && (
                 <ul>
+                  {" "}
                   {users.map((chatUser) => {
                     const isOnline = onlineUsers.includes(chatUser._id);
                     return (
                       <li key={chatUser._id}>
+                        {" "}
                         <NavLink
                           to={`/chat/${chatUser._id}`}
                           className={({ isActive }) =>
@@ -126,8 +144,10 @@ const UserList = () => {
                             }`
                           }
                         >
+                          {" "}
                           <div className="relative shrink-0">
-                            <Avatar username={chatUser.username} />
+                            {" "}
+                            <Avatar username={chatUser.username} />{" "}
                             {isOnline ? (
                               <div
                                 className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-gray-800 bg-green-500"
@@ -138,19 +158,20 @@ const UserList = () => {
                                 className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-gray-800 bg-gray-500"
                                 title="Offline"
                               ></div>
-                            )}
-                          </div>
+                            )}{" "}
+                          </div>{" "}
                           <p className="text-lg font-medium text-gray-200">
                             {chatUser.username}
-                          </p>
-                        </NavLink>
+                          </p>{" "}
+                        </NavLink>{" "}
                       </li>
                     );
-                  })}
+                  })}{" "}
                 </ul>
               )}
               {activeTab === "groups" && (
                 <ul>
+                  {" "}
                   {groups.length > 0 ? (
                     groups.map((group) => {
                       const onlineMembersInGroup = group.participants.filter(
@@ -160,9 +181,9 @@ const UserList = () => {
                         onlineMembersInGroup.filter(
                           (id) => id !== user.id
                         ).length;
-
                       return (
                         <li key={group._id}>
+                          {" "}
                           <NavLink
                             to={`/group/${group._id}`}
                             className={({ isActive }) =>
@@ -173,26 +194,30 @@ const UserList = () => {
                               }`
                             }
                           >
-                            <Avatar username={group.groupName} />
+                            {" "}
+                            <Avatar username={group.groupName} />{" "}
                             <div className="flex-grow">
+                              {" "}
                               <p className="text-lg font-medium text-gray-200">
                                 {group.groupName}
-                              </p>
+                              </p>{" "}
                               {otherOnlineMembersCount > 0 ? (
                                 <div className="flex items-center gap-1.5 text-xs text-green-400">
+                                  {" "}
                                   <span className="relative flex h-2 w-2">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
-                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-                                  </span>
-                                  {otherOnlineMembersCount} online
+                                    {" "}
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>{" "}
+                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>{" "}
+                                  </span>{" "}
+                                  {otherOnlineMembersCount} online{" "}
                                 </div>
                               ) : (
                                 <p className="truncate text-xs text-gray-400">
                                   No one else is online
                                 </p>
-                              )}
-                            </div>
-                          </NavLink>
+                              )}{" "}
+                            </div>{" "}
+                          </NavLink>{" "}
                         </li>
                       );
                     })
@@ -200,7 +225,7 @@ const UserList = () => {
                     <p className="px-6 py-4 text-center text-sm text-gray-400">
                       No groups yet. Create one!
                     </p>
-                  )}
+                  )}{" "}
                 </ul>
               )}
             </>
@@ -210,5 +235,4 @@ const UserList = () => {
     </>
   );
 };
-
 export default UserList;

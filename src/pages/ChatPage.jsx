@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -8,6 +8,7 @@ import {
   editMessage,
   createMessage,
   getGroupById,
+  renameGroup,
 } from "../services/api";
 import { toast } from "react-hot-toast";
 import {
@@ -25,6 +26,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery";
 import AddMemberModal from "../components/AddMemberModal";
 import TypingIndicator from "../components/TypingIndicator";
 import TextareaAutosize from "react-textarea-autosize";
+import ChatHeader from "../components/ChatHeader";
 
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
@@ -44,8 +46,8 @@ const ChatPage = () => {
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const messageContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
-  const chatEndRef = useRef(null);
   const isPaginating = useRef(false);
+  const chatEndRef = useRef(null);
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
   const isGroupChat = !!groupId;
@@ -55,7 +57,7 @@ const ChatPage = () => {
       : [currentUser.id, chatPartner._id].sort().join("-")
     : null;
 
-  const fetchChatPartnerDetails = () => {
+  const fetchChatPartnerDetails = useCallback(() => {
     if (isGroupChat) {
       getGroupById(groupId)
         .then((response) => {
@@ -77,7 +79,7 @@ const ChatPage = () => {
         })
         .catch(console.error);
     }
-  };
+  }, [groupId, recipientId, isGroupChat]);
 
   useEffect(() => {
     setMessages([]);
@@ -90,12 +92,13 @@ const ChatPage = () => {
     setPage(1);
     setHasMoreMessages(true);
     fetchChatPartnerDetails();
-  }, [recipientId, groupId]);
+  }, [recipientId, groupId, fetchChatPartnerDetails]);
 
   useEffect(() => {
     if (!currentUser?.id || !chatPartner?._id) return;
     const fetchInitialHistory = async () => {
       setLoadingHistory(true);
+      isPaginating.current = true;
       try {
         const idToFetch = isGroupChat
           ? chatPartner._id
@@ -111,6 +114,13 @@ const ChatPage = () => {
         console.error("Failed to fetch chat history", error);
       } finally {
         setLoadingHistory(false);
+        setTimeout(() => {
+          isPaginating.current = false;
+          if (messageContainerRef.current) {
+            messageContainerRef.current.scrollTop =
+              messageContainerRef.current.scrollHeight;
+          }
+        }, 0);
       }
     };
     fetchInitialHistory();
@@ -143,11 +153,22 @@ const ChatPage = () => {
       setTypingUsers((prev) => [...new Set([...prev, username])]);
     const stopTypingHandler = ({ username }) =>
       setTypingUsers((prev) => prev.filter((u) => u !== username));
+    const groupRenamedHandler = ({ updatedGroup, newMessage }) => {
+      if (isGroupChat && chatPartner?._id === updatedGroup._id) {
+        setChatPartner((prev) => ({
+          ...prev,
+          name: updatedGroup.groupName,
+          groupName: updatedGroup.groupName,
+        }));
+        setMessages((prev) => [...prev, newMessage]);
+      }
+    };
     socket.on("private_message", privateMessageHandler);
     socket.on("message_deleted", deletedHandler);
     socket.on("message_edited", editedHandler);
     socket.on("user_is_typing", typingHandler);
     socket.on("user_stopped_typing", stopTypingHandler);
+    socket.on("group_renamed", groupRenamedHandler);
     return () => {
       socket.emit("leave_room", { roomName });
       socket.off("private_message", privateMessageHandler);
@@ -155,8 +176,9 @@ const ChatPage = () => {
       socket.off("message_edited", editedHandler);
       socket.off("user_is_typing", typingHandler);
       socket.off("user_stopped_typing", stopTypingHandler);
+      socket.off("group_renamed", groupRenamedHandler);
     };
-  }, [socket, roomName, isGroupChat]);
+  }, [socket, roomName, isGroupChat, chatPartner]);
 
   useEffect(() => {
     if (isPaginating.current) return;
@@ -179,27 +201,23 @@ const ChatPage = () => {
 
   const loadMoreMessages = async () => {
     if (isFetchingMore || !hasMoreMessages) return;
-
     isPaginating.current = true;
-    setIsFetchingMore(true);
     const container = messageContainerRef.current;
     const oldScrollHeight = container.scrollHeight;
+    setIsFetchingMore(true);
     const nextPage = page + 1;
-
     try {
       const idToFetch = isGroupChat
         ? chatPartner._id
         : [currentUser.id, chatPartner._id].sort().join("-");
       const response = await getChatHistory(idToFetch, isGroupChat, nextPage);
       const newMessages = response.data.data.reverse();
-
       setMessages((prev) => [...newMessages, ...prev]);
       setPage(nextPage);
       setHasMoreMessages(
         response.data.pagination.currentPage <
           response.data.pagination.totalPages
       );
-
       requestAnimationFrame(() => {
         container.scrollTop = container.scrollHeight - oldScrollHeight;
       });
@@ -214,11 +232,8 @@ const ChatPage = () => {
   };
 
   const handleScroll = () => {
-    if (messageContainerRef.current?.scrollTop === 0) {
-      loadMoreMessages();
-    }
+    if (messageContainerRef.current?.scrollTop === 0) loadMoreMessages();
   };
-
   const handleSend = async () => {
     if (!newMessage.trim() || !socket || !roomName) return;
     if (typingTimeoutRef.current) {
@@ -312,15 +327,42 @@ const ChatPage = () => {
     }
   };
 
+  const handleSaveRename = async (newGroupName) => {
+    if (!isGroupChat || !chatPartner) return;
+    const tempId = `rename_${Date.now()}`;
+    const optimisticMessage = {
+      _id: tempId,
+      text: `${currentUser.username} renamed the group to "${newGroupName}"`,
+    };
+    setMessages((prev) => [...prev, optimisticMessage]);
+    try {
+      const response = await renameGroup(chatPartner._id, newGroupName, tempId);
+      const { groupExists: updatedGroup, newMessage: finalSystemMessage } =
+        response.data;
+      setChatPartner((prev) => ({
+        ...prev,
+        name: updatedGroup.groupName,
+        groupName: updatedGroup.groupName,
+      }));
+      setMessages((prev) =>
+        prev.map((msg) => (msg._id === tempId ? finalSystemMessage : msg))
+      );
+      socket.emit("rename_group", {
+        groupId: chatPartner._id,
+        updatedGroup,
+        newMessage: finalSystemMessage,
+      });
+    } catch (error) {
+      toast.error("Failed to rename group.");
+      setMessages((prev) => prev.filter((msg) => msg._id !== tempId));
+    }
+  };
+
   const formatTime = (timestamp) =>
     new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
-
-  if (!chatPartner) {
-    return <Spinner />;
-  }
 
   const otherTypingUsers = typingUsers.filter(
     (u) => u !== currentUser.username
@@ -328,22 +370,19 @@ const ChatPage = () => {
   const typingDisplay = () => {
     if (otherTypingUsers.length === 1)
       return `${otherTypingUsers[0]} is typing`;
-    if (otherTypingUsers.length === 2)
-      return `${otherTypingUsers[0]} and ${otherTypingUsers[1]} are typing`;
     if (otherTypingUsers.length > 2)
       return `${otherTypingUsers.length} people are typing`;
+    if (otherTypingUsers.length > 1)
+      return `${otherTypingUsers.join(" and ")} are typing`;
     return null;
   };
 
-  let onlineStatusText = null;
-  if (isGroupChat && chatPartner.participants) {
-    const onlineCount = chatPartner.participants.filter((p) =>
-      onlineUsers.includes(p)
-    ).length;
-    onlineStatusText = `${onlineCount} of ${chatPartner.participants.length} members online`;
-  } else if (!isGroupChat && chatPartner._id) {
-    const isOnline = onlineUsers.includes(chatPartner._id);
-    onlineStatusText = isOnline ? "Online" : "Offline";
+  if (!chatPartner && loadingHistory) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <Spinner />
+      </div>
+    );
   }
 
   return (
@@ -355,46 +394,13 @@ const ChatPage = () => {
         onMembersAdded={fetchChatPartnerDetails}
       />
       <div className="flex h-full flex-col font-sans">
-        <header className="flex shrink-0 items-center justify-between border-b bg-white p-4">
-          <div className="flex items-center gap-4">
-            {!isDesktop && (
-              <Link
-                to="/"
-                className="cursor-pointer p-2 text-gray-500 hover:text-blue-500"
-              >
-                <FaArrowLeft size={20} />
-              </Link>
-            )}
-            <Avatar username={chatPartner.name} />
-            <div>
-              <h2 className="text-lg font-bold text-gray-800">
-                {chatPartner.name}
-              </h2>
-              {onlineStatusText && (
-                <p
-                  className={`text-xs ${
-                    onlineStatusText.includes("Online") ||
-                    onlineStatusText.includes("online")
-                      ? "text-green-500"
-                      : "text-gray-500"
-                  }`}
-                >
-                  {onlineStatusText}
-                </p>
-              )}
-            </div>
-          </div>
-          {isGroupChat && (
-            <button
-              onClick={() => setIsAddMemberModalOpen(true)}
-              className="cursor-pointer p-2 text-gray-500 transition hover:text-blue-500"
-              title="Add Member"
-            >
-              <FaUserPlus size={20} />
-            </button>
-          )}
-        </header>
-
+        <ChatHeader
+          chatPartner={chatPartner}
+          isGroupChat={isGroupChat}
+          onlineUsers={onlineUsers}
+          onAddMemberClick={() => setIsAddMemberModalOpen(true)}
+          onSaveRename={handleSaveRename}
+        />
         <div
           ref={messageContainerRef}
           onScroll={handleScroll}
@@ -417,6 +423,19 @@ const ChatPage = () => {
               </div>
             ) : (
               messages.map((msg) => {
+                const isSystemMessage =
+                  String(msg.tempId).startsWith("rename_") ||
+                  String(msg._id).startsWith("rename_");
+                if (isSystemMessage) {
+                  return (
+                    <div
+                      key={msg._id}
+                      className="py-2 text-center text-xs text-gray-500 italic"
+                    >
+                      {msg.text}
+                    </div>
+                  );
+                }
                 const isMyMessage = msg.me || msg.senderId === currentUser.id;
                 const isEditing = editingMessage?._id === msg._id;
                 return (
@@ -513,7 +532,7 @@ const ChatPage = () => {
                 );
               })
             )}
-
+            
             {otherTypingUsers.length > 0 && (
               <div className="group flex items-start gap-2.5 justify-start">
                 {isGroupChat && otherTypingUsers[0] && (

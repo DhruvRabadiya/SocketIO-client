@@ -51,3 +51,9 @@ export const editMessage = (messageId, newText) =>
 export const addUserToGroup = (groupId, userId) => {
   return apiClient.patch(`/user/group/add/${groupId}`, { userId });
 };
+export const renameGroup = (groupId, newGroupName, tempId) => {
+  return apiClient.patch(`/user/groupName/${groupId}`, {
+    groupName: newGroupName,
+    tempId: tempId,
+  });
+};
