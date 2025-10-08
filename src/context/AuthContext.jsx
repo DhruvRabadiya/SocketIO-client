@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from "react";
 import { jwtDecode } from "jwt-decode";
 import { io } from "socket.io-client";
-import { loginUser, registerUser } from "../services/api";
+import { loginUser, registerUser, getUserGroups } from "../services/api";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -11,41 +11,47 @@ const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState(null);
-  const [onlineUsers, setOnlineUsers] = useState([]); // State for online users list
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [groups, setGroups] = useState([]);
 
   useEffect(() => {
-    try {
-      if (token) {
+    if (token) {
+      const newSocket = io(import.meta.env.VITE_BACKEND_URL, {
+        auth: { token },
+      });
+      setSocket(newSocket);
+
+      newSocket.on("online_users", (userIds) => {
+        setOnlineUsers(userIds);
+      });
+
+      getUserGroups()
+        .then((res) => setGroups(res.data.groups))
+        .catch(console.error);
+
+      try {
         const decodedToken = jwtDecode(token);
         setUser({
           id: decodedToken.id || decodedToken._id,
           username: decodedToken.username,
         });
-        const newSocket = io(import.meta.env.VITE_BACKEND_URL, {
-          auth: { token },
-        });
-        setSocket(newSocket);
-
-        // Listen for the online users list from the server
-        newSocket.on("online_users", (userIds) => {
-          setOnlineUsers(userIds);
-        });
-
-        return () => {
-          newSocket.off("online_users");
-          newSocket.disconnect();
-          setSocket(null);
-        };
-      } else {
-        setUser(null);
-        setSocket(null);
+      } catch (error) {
+        console.error("Invalid token:", error);
+        setToken(null);
+        localStorage.removeItem("token");
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Invalid token:", error);
+
+      return () => {
+        newSocket.off("online_users");
+        newSocket.disconnect();
+      };
+    } else {
       setUser(null);
-      setToken(null);
-      localStorage.removeItem("token");
-    } finally {
+      setSocket(null);
+      setOnlineUsers([]);
+      setGroups([]);
       setLoading(false);
     }
   }, [token]);
@@ -63,6 +69,14 @@ const AuthProvider = ({ children }) => {
 
   const register = (userData) => registerUser(userData);
 
+  const updateGroups = (updater) => {
+    if (typeof updater === "function") {
+      setGroups(updater);
+    } else {
+      setGroups(updater);
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -71,6 +85,8 @@ const AuthProvider = ({ children }) => {
         loading,
         socket,
         onlineUsers,
+        groups,
+        updateGroups,
         login,
         register,
         logout,

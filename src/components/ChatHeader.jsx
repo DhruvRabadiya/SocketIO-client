@@ -27,7 +27,8 @@ const ChatHeader = ({
     }
   }, [chatPartner]);
 
-  const handleSave = () => {
+  const handleSave = (event) => {
+    event.preventDefault();
     if (newGroupName.trim() && newGroupName !== chatPartner.name) {
       onSaveRename(newGroupName);
     }
@@ -59,35 +60,37 @@ const ChatHeader = ({
         {chatPartner && <Avatar username={chatPartner.name} />}
         <div>
           {isEditingName ? (
-            <div className="flex items-center gap-2">
+            // Using a <form> tag is the correct way to handle input submission.
+            // Its `onSubmit` is now connected to our handleSave function.
+            <form onSubmit={handleSave} className="flex items-center gap-2">
               <input
                 type="text"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSave();
                   if (e.key === "Escape") setIsEditingName(false);
                 }}
                 className="rounded-md border border-gray-300 px-2 py-1 text-lg font-bold"
                 autoFocus
               />
               <button
+                type="button" // This prevents the cancel button from submitting the form
                 onClick={() => setIsEditingName(false)}
                 className="cursor-pointer p-1 text-gray-500 hover:text-red-500"
               >
                 <FaTimes />
               </button>
               <button
-                onClick={handleSave}
+                type="submit" // This button will now trigger the form's onSubmit
                 className="cursor-pointer p-1 text-gray-500 hover:text-green-500"
               >
                 <FaCheck />
               </button>
-            </div>
+            </form>
           ) : (
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-gray-800">
-                {chatPartner.name}
+                {chatPartner?.name || "..."}
               </h2>
               {isGroupChat && (
                 <button

@@ -9,9 +9,8 @@ import Spinner from "./Spinner";
 import CreateGroupModal from "./CreateGroupModal";
 
 const UserList = () => {
-  const { user, socket, onlineUsers } = useAuth();
+  const { user, socket, onlineUsers, groups, updateGroups } = useAuth();
   const [users, setUsers] = useState([]);
-  const [groups, setGroups] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("directs");
@@ -20,17 +19,13 @@ const UserList = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [usersResponse, groupsResponse] = await Promise.all([
-        getAllUsers(),
-        getUserGroups(),
-      ]);
+      const usersResponse = await getAllUsers();
       const otherUsers = user?.id
         ? usersResponse.data.getAllusers.filter((u) => u._id !== user.id)
         : usersResponse.data.getAllusers;
       setUsers(otherUsers);
-      setGroups(groupsResponse.data.groups);
     } catch (error) {
-      toast.error("Could not fetch contacts and groups.");
+      toast.error("Could not fetch contacts.");
     } finally {
       setIsLoading(false);
     }
@@ -53,7 +48,7 @@ const UserList = () => {
   useEffect(() => {
     if (socket) {
       const groupRenamedHandler = ({ updatedGroup }) => {
-        setGroups((prevGroups) =>
+        updateGroups((prevGroups) =>
           prevGroups.map((g) =>
             g._id === updatedGroup._id
               ? { ...g, groupName: updatedGroup.groupName }
@@ -66,10 +61,10 @@ const UserList = () => {
         socket.off("group_renamed", groupRenamedHandler);
       };
     }
-  }, [socket]);
+  }, [socket, updateGroups]);
 
   const handleGroupCreated = () => {
-    fetchData();
+    getUserGroups().then((res) => updateGroups(res.data.groups));
   };
 
   const TabButton = ({ tabName, label, icon }) => (
@@ -128,12 +123,10 @@ const UserList = () => {
             <>
               {activeTab === "directs" && (
                 <ul>
-                  {" "}
                   {users.map((chatUser) => {
                     const isOnline = onlineUsers.includes(chatUser._id);
                     return (
                       <li key={chatUser._id}>
-                        {" "}
                         <NavLink
                           to={`/chat/${chatUser._id}`}
                           className={({ isActive }) =>
@@ -144,10 +137,8 @@ const UserList = () => {
                             }`
                           }
                         >
-                          {" "}
                           <div className="relative shrink-0">
-                            {" "}
-                            <Avatar username={chatUser.username} />{" "}
+                            <Avatar username={chatUser.username} />
                             {isOnline ? (
                               <div
                                 className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-gray-800 bg-green-500"
@@ -158,20 +149,19 @@ const UserList = () => {
                                 className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-gray-800 bg-gray-500"
                                 title="Offline"
                               ></div>
-                            )}{" "}
-                          </div>{" "}
+                            )}
+                          </div>
                           <p className="text-lg font-medium text-gray-200">
                             {chatUser.username}
-                          </p>{" "}
-                        </NavLink>{" "}
+                          </p>
+                        </NavLink>
                       </li>
                     );
-                  })}{" "}
+                  })}
                 </ul>
               )}
               {activeTab === "groups" && (
                 <ul>
-                  {" "}
                   {groups.length > 0 ? (
                     groups.map((group) => {
                       const onlineMembersInGroup = group.participants.filter(
@@ -183,7 +173,6 @@ const UserList = () => {
                         ).length;
                       return (
                         <li key={group._id}>
-                          {" "}
                           <NavLink
                             to={`/group/${group._id}`}
                             className={({ isActive }) =>
@@ -194,30 +183,26 @@ const UserList = () => {
                               }`
                             }
                           >
-                            {" "}
-                            <Avatar username={group.groupName} />{" "}
+                            <Avatar username={group.groupName} />
                             <div className="flex-grow">
-                              {" "}
                               <p className="text-lg font-medium text-gray-200">
                                 {group.groupName}
-                              </p>{" "}
+                              </p>
                               {otherOnlineMembersCount > 0 ? (
                                 <div className="flex items-center gap-1.5 text-xs text-green-400">
-                                  {" "}
                                   <span className="relative flex h-2 w-2">
-                                    {" "}
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>{" "}
-                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>{" "}
-                                  </span>{" "}
-                                  {otherOnlineMembersCount} online{" "}
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
+                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+                                  </span>
+                                  {otherOnlineMembersCount} online
                                 </div>
                               ) : (
                                 <p className="truncate text-xs text-gray-400">
                                   No one else is online
                                 </p>
-                              )}{" "}
-                            </div>{" "}
-                          </NavLink>{" "}
+                              )}
+                            </div>
+                          </NavLink>
                         </li>
                       );
                     })
@@ -225,7 +210,7 @@ const UserList = () => {
                     <p className="px-6 py-4 text-center text-sm text-gray-400">
                       No groups yet. Create one!
                     </p>
-                  )}{" "}
+                  )}
                 </ul>
               )}
             </>

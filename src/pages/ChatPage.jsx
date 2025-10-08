@@ -30,7 +30,13 @@ import ChatHeader from "../components/ChatHeader";
 
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
-  const { user: currentUser, socket, onlineUsers } = useAuth();
+  const {
+    user: currentUser,
+    socket,
+    onlineUsers,
+    groups,
+    updateGroups,
+  } = useAuth();
   const [chatPartner, setChatPartner] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -141,7 +147,7 @@ const ChatPage = () => {
           msg._id === messageId ? { ...msg, text: null, isDeleted: true } : msg
         )
       );
-    const editedHandler = ({ messageId, newText }) =>
+    const editedHandler = ({ messageId, newText, isEdited }) =>
       setMessages((prev) =>
         prev.map((msg) =>
           msg._id === messageId
@@ -160,7 +166,7 @@ const ChatPage = () => {
           name: updatedGroup.groupName,
           groupName: updatedGroup.groupName,
         }));
-        setMessages((prev) => [...prev, newMessage]);
+        setMessages((prev) => [...prev, { ...newMessage, isSystem: true }]);
       }
     };
     socket.on("private_message", privateMessageHandler);
@@ -332,6 +338,7 @@ const ChatPage = () => {
     const tempId = `rename_${Date.now()}`;
     const optimisticMessage = {
       _id: tempId,
+      isSystem: true,
       text: `${currentUser.username} renamed the group to "${newGroupName}"`,
     };
     setMessages((prev) => [...prev, optimisticMessage]);
@@ -345,7 +352,16 @@ const ChatPage = () => {
         groupName: updatedGroup.groupName,
       }));
       setMessages((prev) =>
-        prev.map((msg) => (msg._id === tempId ? finalSystemMessage : msg))
+        prev.map((msg) =>
+          msg._id === tempId ? { ...finalSystemMessage, isSystem: true } : msg
+        )
+      );
+      updateGroups((prev) =>
+        prev.map((g) =>
+          g._id === updatedGroup._id
+            ? { ...g, groupName: updatedGroup.groupName }
+            : g
+        )
       );
       socket.emit("rename_group", {
         groupId: chatPartner._id,
@@ -404,163 +420,164 @@ const ChatPage = () => {
         <div
           ref={messageContainerRef}
           onScroll={handleScroll}
-          className="flex-grow overflow-y-auto bg-gray-100 p-6"
+          className="flex h-full flex-grow flex-col overflow-y-auto bg-gray-100"
         >
-          <div className="flex flex-col gap-4">
-            {isFetchingMore && (
-              <div className="py-4">
-                <Spinner />
-              </div>
-            )}
-            {!hasMoreMessages && !loadingHistory && (
-              <p className="text-center text-sm text-gray-500">
-                This is the beginning of your conversation.
-              </p>
-            )}
-            {loadingHistory ? (
-              <div className="flex h-full items-center justify-center">
-                <Spinner />
-              </div>
-            ) : (
-              messages.map((msg) => {
-                const isSystemMessage =
-                  String(msg.tempId).startsWith("rename_") ||
-                  String(msg._id).startsWith("rename_");
-                if (isSystemMessage) {
+          <div className="p-6">
+            <div className="flex flex-col gap-4">
+              {isFetchingMore && (
+                <div className="py-4">
+                  <Spinner />
+                </div>
+              )}
+              {!hasMoreMessages && !loadingHistory && (
+                <p className="text-center text-sm text-gray-500">
+                  This is the beginning of your conversation.
+                </p>
+              )}
+              {loadingHistory ? (
+                <div className="flex h-full flex-1 items-center justify-center">
+                  <Spinner />
+                </div>
+              ) : (
+                messages.map((msg) => {
+                  const isSystemMessage =
+                    msg.isSystem ||
+                    String(msg.tempId).startsWith("rename_") ||
+                    String(msg._id).startsWith("rename_");
+                  if (isSystemMessage) {
+                    return (
+                      <div
+                        key={msg._id}
+                        className="py-2 text-center text-xs text-gray-500 italic"
+                      >
+                        {msg.text}
+                      </div>
+                    );
+                  }
+                  const isMyMessage = msg.me || msg.senderId === currentUser.id;
+                  const isEditing = editingMessage?._id === msg._id;
                   return (
                     <div
                       key={msg._id}
-                      className="py-2 text-center text-xs text-gray-500 italic"
-                    >
-                      {msg.text}
-                    </div>
-                  );
-                }
-                const isMyMessage = msg.me || msg.senderId === currentUser.id;
-                const isEditing = editingMessage?._id === msg._id;
-                return (
-                  <div
-                    key={msg._id}
-                    className={`group flex items-start gap-2.5 ${
-                      isMyMessage ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    {!isMyMessage && isGroupChat && (
-                      <Avatar username={msg.senderUsername} />
-                    )}
-                    <div
-                      className={`flex flex-col ${
-                        isMyMessage ? "items-end" : "items-start"
+                      className={`group flex items-start gap-2.5 ${
+                        isMyMessage ? "justify-end" : "justify-start"
                       }`}
                     >
+                      {!isMyMessage && isGroupChat && (
+                        <Avatar username={msg.senderUsername} />
+                      )}
                       <div
-                        className={`max-w-lg rounded-2xl px-4 py-3 ${
-                          isMyMessage
-                            ? "rounded-br-none bg-blue-600 text-white"
-                            : "rounded-bl-none bg-gray-700 text-white"
+                        className={`flex flex-col ${
+                          isMyMessage ? "items-end" : "items-start"
                         }`}
                       >
-                        {!isMyMessage && isGroupChat && (
-                          <strong className="block text-xs font-bold text-blue-300">
-                            {msg.senderUsername}
-                          </strong>
-                        )}
-                        {isEditing ? (
-                          <div>
-                            <input
-                              type="text"
-                              value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
-                              className="w-full rounded border-b border-white/50 bg-transparent text-white outline-none"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleSaveEdit();
-                                if (e.key === "Escape") handleCancelEdit();
-                              }}
-                            />
-                            <div className="mt-2 flex justify-end gap-3 text-xs">
-                              <button
-                                onClick={handleCancelEdit}
-                                className="cursor-pointer hover:underline"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={handleSaveEdit}
-                                className="cursor-pointer font-bold hover:underline"
-                              >
-                                Save
-                              </button>
+                        <div
+                          className={`max-w-lg rounded-2xl px-4 py-3 shadow-md ${
+                            isMyMessage
+                              ? "rounded-br-none bg-blue-600 text-white"
+                              : "rounded-bl-none bg-gray-700 text-white"
+                          }`}
+                        >
+                          {!isMyMessage && isGroupChat && (
+                            <strong className="block text-xs font-bold text-blue-300">
+                              {msg.senderUsername}
+                            </strong>
+                          )}
+                          {isEditing ? (
+                            <div>
+                              <input
+                                type="text"
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                className="w-full rounded border-b border-white/50 bg-transparent text-white outline-none"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveEdit();
+                                  if (e.key === "Escape") handleCancelEdit();
+                                }}
+                              />
+                              <div className="mt-2 flex justify-end gap-3 text-xs">
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className="cursor-pointer hover:underline"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={handleSaveEdit}
+                                  className="cursor-pointer font-bold hover:underline"
+                                >
+                                  Save
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ) : msg.isDeleted ? (
-                          <p className="italic text-gray-400">
-                            This message was deleted
-                          </p>
-                        ) : (
-                          <p className="text-base whitespace-pre-wrap break-words">
-                            {msg.text}
-                          </p>
-                        )}
+                          ) : msg.isDeleted ? (
+                            <p className="italic text-gray-400">
+                              This message was deleted
+                            </p>
+                          ) : (
+                            <p className="text-base whitespace-pre-wrap break-words">
+                              {msg.text}
+                            </p>
+                          )}
+                        </div>
+                        <span className="px-2 pt-1 text-xs text-gray-400">
+                          {formatTime(
+                            msg.addedAt || msg.modifiedAt || Date.now()
+                          )}{" "}
+                          {msg.isEdited && !msg.isDeleted && (
+                            <em className="ml-1">(edited)</em>
+                          )}
+                        </span>
                       </div>
-                      <span className="px-2 pt-1 text-xs text-gray-400">
-                        {formatTime(
-                          msg.addedAt || msg.modifiedAt || Date.now()
-                        )}{" "}
-                        {msg.isEdited && !msg.isDeleted && (
-                          <em className="ml-1">(edited)</em>
-                        )}
-                      </span>
+                      {isMyMessage && !msg.isDeleted && !isEditing && (
+                        <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">
+                          <button
+                            onClick={() => handleStartEdit(msg)}
+                            className="cursor-pointer p-1 hover:text-blue-400"
+                          >
+                            <FaEdit />
+                          </button>
+                          <button
+                            onClick={(e) => handleOpenConfirmModal(e, msg)}
+                            className="cursor-pointer p-1 hover:text-red-500"
+                          >
+                            <FaTrash />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {isMyMessage && !msg.isDeleted && !isEditing && (
-                      <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">
-                        <button
-                          onClick={() => handleStartEdit(msg)}
-                          className="cursor-pointer p-1 hover:text-blue-400"
-                        >
-                          <FaEdit />
-                        </button>
-                        <button
-                          onClick={(e) => handleOpenConfirmModal(e, msg)}
-                          className="cursor-pointer p-1 hover:text-red-500"
-                        >
-                          <FaTrash />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-            
-            {otherTypingUsers.length > 0 && (
-              <div className="group flex items-start gap-2.5 justify-start">
-                {isGroupChat && otherTypingUsers[0] && (
-                  <Avatar username={otherTypingUsers[0]} />
-                )}
-                <div className="flex flex-col items-start">
-                  <div
-                    className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white`}
-                  >
-                    {isGroupChat ? (
-                      <div className="flex flex-col items-start">
+                  );
+                })
+              )}
+              {otherTypingUsers.length > 0 && (
+                <div className="group flex items-start gap-2.5 justify-start">
+                  {isGroupChat && otherTypingUsers[0] && (
+                    <Avatar username={otherTypingUsers[0]} />
+                  )}
+                  <div className="flex flex-col items-start">
+                    <div
+                      className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white shadow-md`}
+                    >
+                      {isGroupChat ? (
+                        <div className="flex flex-col items-start">
+                          <TypingIndicator />
+                          <p className="pt-1 text-xs font-bold text-blue-300">
+                            {typingDisplay()}
+                          </p>
+                        </div>
+                      ) : (
                         <TypingIndicator />
-                        <p className="pt-1 text-xs font-bold text-blue-300">
-                          {typingDisplay()}
-                        </p>
-                      </div>
-                    ) : (
-                      <TypingIndicator />
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
+              )}
+              <div ref={chatEndRef} />
+            </div>
           </div>
         </div>
-
-        <footer className="shrink-0 border-t bg-gray-50 p-4">
+        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">
           <div className="relative flex items-end gap-2">
             <TextareaAutosize
               value={newMessage}
@@ -572,13 +589,13 @@ const ChatPage = () => {
                 }
               }}
               placeholder="Type a message..."
-              className="w-full resize-none rounded-xl border bg-white px-4 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full resize-none rounded-xl border bg-gray-100 px-4 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               rows={1}
               maxRows={5}
             />
             <button
               onClick={handleSend}
-              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:bg-blue-300"
+              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:bg-blue-400"
               disabled={!newMessage.trim()}
             >
               <FaPaperPlane size={18} />
@@ -587,7 +604,7 @@ const ChatPage = () => {
         </footer>
         {isConfirmModalOpen && (
           <div
-            className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-opacity-50"
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={handleCloseConfirmModal}
           >
             <div
@@ -619,5 +636,4 @@ const ChatPage = () => {
     </>
   );
 };
-
 export default ChatPage;
