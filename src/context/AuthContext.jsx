@@ -20,10 +20,7 @@ const AuthProvider = ({ children }) => {
         auth: { token },
       });
       setSocket(newSocket);
-
-      newSocket.on("online_users", (userIds) => {
-        setOnlineUsers(userIds);
-      });
+      newSocket.on("online_users", (userIds) => setOnlineUsers(userIds));
 
       getUserGroups()
         .then((res) => setGroups(res.data.groups))
@@ -37,8 +34,8 @@ const AuthProvider = ({ children }) => {
         });
       } catch (error) {
         console.error("Invalid token:", error);
-        setToken(null);
         localStorage.removeItem("token");
+        setToken(null);
       } finally {
         setLoading(false);
       }
