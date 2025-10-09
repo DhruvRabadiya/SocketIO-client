@@ -48,8 +48,8 @@ export const deleteMessage = (messageId) =>
   apiClient.patch(`/user/delete/${messageId}`);
 export const editMessage = (messageId, newText) =>
   apiClient.patch(`/user/edit/${messageId}`, { text: newText });
-export const addUserToGroup = (groupId, userId) => {
-  return apiClient.patch(`/user/group/add/${groupId}`, { userId });
+export const addUserToGroup = (groupId, userIds, tempId) => {
+  return apiClient.patch(`/user/group/add/${groupId}`, { userIds, tempId });
 };
 export const renameGroup = (groupId, newGroupName, tempId) => {
   return apiClient.patch(`/user/groupName/${groupId}`, {

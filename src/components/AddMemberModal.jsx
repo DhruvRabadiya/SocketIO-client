@@ -7,8 +7,8 @@ import Spinner from "./Spinner";
 
 const AddMemberModal = ({ isOpen, onClose, group, onMembersAdded }) => {
   const [allUsers, setAllUsers] = useState([]);
-  const [usersToAdd, setUsersToAdd] = useState([]);
-  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [availableUsers, setAvailableUsers] = useState([]);
+  const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -19,45 +19,58 @@ const AddMemberModal = ({ isOpen, onClose, group, onMembersAdded }) => {
       getAllUsers()
         .then((response) => {
           const allSystemUsers = response.data.getAllusers;
-          const availableUsers = allSystemUsers.filter(
+          const usersNotInGroup = allSystemUsers.filter(
             (user) => !group.participants.includes(user._id)
           );
-          setUsersToAdd(availableUsers);
+          setAvailableUsers(usersNotInGroup);
         })
         .catch(() => toast.error("Could not fetch users."))
         .finally(() => setIsLoading(false));
     }
   }, [isOpen, group]);
 
-  const handleAddMember = async () => {
-    if (!selectedUserId) {
-      return toast.error("Please select a user to add.");
+  const handleToggleUser = (userId) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(userId)
+        ? prev.filter((id) => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const handleAddMembers = async () => {
+    if (selectedUserIds.length === 0) {
+      return toast.error("Please select at least one user to add.");
     }
     setIsSubmitting(true);
     try {
-      await addUserToGroup(group._id, selectedUserId);
-      toast.success("Member added successfully!");
-      onMembersAdded();
+      const selectedUsersData = selectedUserIds
+        .map((id) => availableUsers.find((u) => u._id === id))
+        .filter(Boolean); // filter out any not found
+
+      await onMembersAdded(
+        selectedUserIds,
+        selectedUsersData.map((u) => u.username)
+      );
       handleClose();
     } catch (error) {
-      toast.error("Failed to add member.");
+      toast.error("Failed to add members.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
-    setSelectedUserId(null);
+    setSelectedUserIds([]);
     setSearchTerm("");
     onClose();
   };
 
   const filteredUsers = useMemo(
     () =>
-      usersToAdd.filter((user) =>
+      availableUsers.filter((user) =>
         user.username.toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [usersToAdd, searchTerm]
+    [availableUsers, searchTerm]
   );
 
   if (!isOpen) return null;
@@ -73,7 +86,7 @@ const AddMemberModal = ({ isOpen, onClose, group, onMembersAdded }) => {
       >
         <div className="flex items-center justify-between border-b p-4">
           <h2 className="text-xl font-bold text-gray-800">
-            Add Member to {group.name}
+            Add Members to {group.name}
           </h2>
           <button
             onClick={handleClose}
@@ -100,17 +113,19 @@ const AddMemberModal = ({ isOpen, onClose, group, onMembersAdded }) => {
               filteredUsers.map((user) => (
                 <li
                   key={user._id}
-                  onClick={() => setSelectedUserId(user._id)}
-                  className={`flex cursor-pointer items-center gap-4 rounded-lg p-3 ${
-                    selectedUserId === user._id
-                      ? "bg-blue-100"
-                      : "hover:bg-gray-100"
-                  }`}
+                  onClick={() => handleToggleUser(user._id)}
+                  className="flex cursor-pointer items-center gap-4 rounded-lg p-3 hover:bg-gray-100"
                 >
                   <Avatar username={user.username} />
                   <span className="flex-grow font-medium text-gray-800">
                     {user.username}
                   </span>
+                  <input
+                    type="checkbox"
+                    checked={selectedUserIds.includes(user._id)}
+                    readOnly
+                    className="h-5 w-5 cursor-pointer rounded text-blue-600 focus:ring-blue-500"
+                  />
                 </li>
               ))
             )}
@@ -123,11 +138,15 @@ const AddMemberModal = ({ isOpen, onClose, group, onMembersAdded }) => {
               Cancel
             </button>
             <button
-              onClick={handleAddMember}
-              disabled={isSubmitting || !selectedUserId}
-              className="flex w-32 items-center justify-center rounded-md bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-700 disabled:bg-blue-400"
+              onClick={handleAddMembers}
+              disabled={isSubmitting || selectedUserIds.length === 0}
+              className="flex min-w-[120px] items-center justify-center rounded-md bg-blue-600 px-4 py-2 font-semibold text-white transition hover:bg-blue-700 disabled:bg-blue-400"
             >
-              {isSubmitting ? <Spinner /> : "Add Member"}
+              {isSubmitting ? (
+                <Spinner />
+              ) : (
+                `Add ${selectedUserIds.length} Member(s)`
+              )}
             </button>
           </div>
         </div>

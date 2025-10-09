@@ -10,16 +10,17 @@ import {
   getGroupById,
   renameGroup,
   leaveGroup,
+  addUserToGroup,
 } from "../services/api";
 import { toast } from "react-hot-toast";
 import {
   FaTrash,
   FaPaperPlane,
-  FaArrowLeft,
   FaEdit,
-  FaCheck,
-  FaTimes,
   FaUserPlus,
+  FaUserMinus,
+  FaPen,
+  FaArrowLeft,
 } from "react-icons/fa";
 import Spinner from "../components/Spinner";
 import Avatar from "../components/Avatar";
@@ -30,13 +31,7 @@ import ChatHeader from "../components/ChatHeader";
 
 const ChatPage = () => {
   const { userId: recipientId, groupId } = useParams();
-  const {
-    user: currentUser,
-    socket,
-    onlineUsers,
-    groups,
-    updateGroups,
-  } = useAuth();
+  const { user: currentUser, socket, onlineUsers, updateGroups } = useAuth();
   const [chatPartner, setChatPartner] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -179,6 +174,15 @@ const ChatPage = () => {
         setMessages((prev) => [...prev, { ...newMessage, isSystem: true }]);
       }
     };
+    const memberAddedHandler = ({ updatedGroup, newMessage }) => {
+      if (isGroupChat && chatPartner?._id === updatedGroup._id) {
+        setChatPartner((prev) => ({
+          ...prev,
+          participants: updatedGroup.participants,
+        }));
+        setMessages((prev) => [...prev, { ...newMessage, isSystem: true }]);
+      }
+    };
     socket.on("private_message", privateMessageHandler);
     socket.on("message_deleted", deletedHandler);
     socket.on("message_edited", editedHandler);
@@ -186,6 +190,7 @@ const ChatPage = () => {
     socket.on("user_stopped_typing", stopTypingHandler);
     socket.on("group_renamed", groupRenamedHandler);
     socket.on("member_left", memberLeftHandler);
+    socket.on("members_added", memberAddedHandler);
     return () => {
       socket.emit("leave_room", { roomName });
       socket.off("private_message", privateMessageHandler);
@@ -195,6 +200,7 @@ const ChatPage = () => {
       socket.off("user_stopped_typing", stopTypingHandler);
       socket.off("group_renamed", groupRenamedHandler);
       socket.off("member_left", memberLeftHandler);
+      socket.off("members_added", memberAddedHandler);
     };
   }, [socket, roomName, isGroupChat, chatPartner]);
 
@@ -202,6 +208,7 @@ const ChatPage = () => {
     if (isPaginating.current) return;
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingUsers]);
+
   const handleNewMessageChange = (e) => {
     setNewMessage(e.target.value);
     if (!socket || !roomName) return;
@@ -215,6 +222,7 @@ const ChatPage = () => {
       typingTimeoutRef.current = null;
     }, 1500);
   };
+
   const loadMoreMessages = async () => {
     if (isFetchingMore || !hasMoreMessages) return;
     isPaginating.current = true;
@@ -250,6 +258,7 @@ const ChatPage = () => {
   const handleScroll = () => {
     if (messageContainerRef.current?.scrollTop === 0) loadMoreMessages();
   };
+
   const handleSend = async () => {
     if (!newMessage.trim() || !socket || !roomName) return;
     if (typingTimeoutRef.current) {
@@ -292,6 +301,7 @@ const ChatPage = () => {
     setIsConfirmModalOpen(false);
     setSelectedMessage(null);
   };
+
   const handleConfirmDelete = async () => {
     if (!selectedMessage || !socket || !roomName) return;
     const messageId = selectedMessage._id;
@@ -311,6 +321,7 @@ const ChatPage = () => {
       );
     }
   };
+
   const handleStartEdit = (message) => {
     setEditingMessage(message);
     setEditText(message.text);
@@ -319,6 +330,7 @@ const ChatPage = () => {
     setEditingMessage(null);
     setEditText("");
   };
+
   const handleSaveEdit = async () => {
     if (!editingMessage || !editText.trim() || !socket || !roomName) return;
     const originalMessage = editingMessage;
@@ -381,6 +393,63 @@ const ChatPage = () => {
     }
   };
 
+  const handleLeaveGroup = async () => {
+    if (!isGroupChat || !chatPartner || !socket) return;
+    const tempId = `leave_${Date.now()}`;
+    try {
+      const response = await leaveGroup(chatPartner._id, tempId);
+      const { groupDetail: updatedGroup, newMessage } = response.data;
+      socket.emit("leave_group", {
+        groupId: chatPartner._id,
+        updatedGroup,
+        newMessage,
+      });
+      updateGroups((prev) => prev.filter((g) => g._id !== chatPartner._id));
+      toast.success(`You have left the group "${chatPartner.name}"`);
+      navigate("/");
+    } catch (error) {
+      toast.error("Failed to leave group.");
+    } finally {
+      setIsLeaveModalOpen(false);
+    }
+  };
+
+  const handleMembersAdded = async (userIds, usernames) => {
+    const tempId = `add_${Date.now()}`;
+    const names = usernames.join(", ");
+    const optimisticMessage = {
+      _id: tempId,
+      isSystem: true,
+      text: `${currentUser.username} added ${names} to the group.`,
+    };
+    setMessages((prev) => [...prev, optimisticMessage]);
+    try {
+      const response = await addUserToGroup(chatPartner._id, userIds, tempId);
+      const { updatedGroup, newMessage } = response.data;
+      setChatPartner((prev) => ({
+        ...prev,
+        participants: updatedGroup.participants,
+      }));
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg._id === tempId ? { ...newMessage, isSystem: true } : msg
+        )
+      );
+      updateGroups((prev) =>
+        prev.map((g) => (g._id === updatedGroup._id ? updatedGroup : g))
+      );
+      socket.emit("add_members", {
+        groupId: chatPartner._id,
+        updatedGroup,
+        newMessage,
+        addedUserIds: userIds,
+      });
+    } catch (error) {
+      toast.error("Failed to add members.");
+      setMessages((prev) => prev.filter((msg) => msg._id !== tempId));
+    }
+  };
+
   const formatTime = (timestamp) =>
     new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
@@ -390,36 +459,13 @@ const ChatPage = () => {
     (u) => u !== currentUser.username
   );
   const typingDisplay = () => {
-     if (otherTypingUsers.length === 1)
+    if (otherTypingUsers.length === 1)
       return `${otherTypingUsers[0]} is typing`;
     if (otherTypingUsers.length > 2)
       return `${otherTypingUsers.length} people are typing`;
     if (otherTypingUsers.length > 1)
       return `${otherTypingUsers.join(" and ")} are typing`;
     return null;
-  };
-
-  const handleLeaveGroup = async () => {
-    if (!isGroupChat || !chatPartner || !socket) return;
-    const tempId = `leave_${Date.now()}`;
-    try {
-      const response = await leaveGroup(chatPartner._id, tempId);
-      const { groupDetail: updatedGroup, newMessage } = response.data;
-
-      socket.emit("leave_group", {
-        groupId: chatPartner._id,
-        updatedGroup,
-        newMessage,
-      });
-
-      updateGroups((prev) => prev.filter((g) => g._id !== chatPartner._id));
-      toast.success(`You have left the group "${chatPartner.name}"`);
-      navigate("/");
-    } catch (error) {
-      toast.error("Failed to leave group.");
-    } finally {
-      setIsLeaveModalOpen(false);
-    }
   };
 
   if (!chatPartner && loadingHistory) {
@@ -436,22 +482,22 @@ const ChatPage = () => {
         isOpen={isAddMemberModalOpen}
         onClose={() => setIsAddMemberModalOpen(false)}
         group={chatPartner}
-        onMembersAdded={fetchChatPartnerDetails}
+        onMembersAdded={handleMembersAdded}
       />
       {isLeaveModalOpen && (
         <div
           className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => setIsLeaveModalOpen(false)}
-        >
+        >  
           <div
             className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
-          >
+          >    
             <h2 className="text-lg font-bold">Leave Group</h2>
             <p className="mt-2 text-gray-600">
               Are you sure you want to leave "{chatPartner?.name}"?
             </p>
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-3">      
               <button
                 onClick={() => setIsLeaveModalOpen(false)}
                 className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 font-semibold text-gray-800 transition hover:bg-gray-300"
@@ -499,18 +545,30 @@ const ChatPage = () => {
               </div>
             ) : (
               messages.map((msg) => {
-                const isSystemMessage =
+                const idString = String(msg.tempId || msg._id);
+                if (
                   msg.isSystem ||
-                  String(msg.tempId).startsWith("rename_") ||
-                  String(msg._id).startsWith("rename_") ||
-                  String(msg.tempId).startsWith("leave_");
-                if (isSystemMessage) {
+                  idString.startsWith("rename_") ||
+                  idString.startsWith("add_") ||
+                  idString.startsWith("leave_")
+                ) {
+                  let icon = <FaPen className="mr-2 shrink-0" />;
+                  let color = "text-gray-500";
+                  if (idString.startsWith("add_")) {
+                    icon = <FaUserPlus className="mr-2 shrink-0" />;
+                    color = "text-green-600";
+                  }
+                  if (idString.startsWith("leave_")) {
+                    icon = <FaUserMinus className="mr-2 shrink-0" />;
+                    color = "text-red-600";
+                  }
                   return (
                     <div
                       key={msg._id}
-                      className="py-2 text-center text-xs text-gray-500 italic"
+                      className={`flex items-center justify-center gap-1 py-2 text-center text-xs italic ${color}`}
                     >
-                      {msg.text}
+                      {icon}
+                      <span>{msg.text}</span>
                     </div>
                   );
                 }
@@ -556,7 +614,7 @@ const ChatPage = () => {
                                 if (e.key === "Escape") handleCancelEdit();
                               }}
                             />
-                            <div className="mt-2 flex justify-end gap-3 text-xs">                              
+                            <div className="mt-2 flex justify-end gap-3 text-xs">            
                               <button
                                 onClick={handleCancelEdit}
                                 className="cursor-pointer hover:underline"
@@ -591,7 +649,7 @@ const ChatPage = () => {
                       </span>
                     </div>
                     {isMyMessage && !msg.isDeleted && !isEditing && (
-                      <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">                       
+                      <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">                   
                         <button
                           onClick={() => handleStartEdit(msg)}
                           className="cursor-pointer p-1 hover:text-blue-400"
@@ -611,16 +669,16 @@ const ChatPage = () => {
               })
             )}
             {otherTypingUsers.length > 0 && (
-              <div className="group flex items-start gap-2.5 justify-start">                
+              <div className="group flex items-start gap-2.5 justify-start">          
                 {isGroupChat && otherTypingUsers[0] && (
                   <Avatar username={otherTypingUsers[0]} />
                 )}
-                <div className="flex flex-col items-start">                  
+                <div className="flex flex-col items-start">            
                   <div
                     className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white shadow-md`}
-                  >                    
+                  >            
                     {isGroupChat ? (
-                      <div className="flex flex-col items-start">                       
+                      <div className="flex flex-col items-start">                 
                         <TypingIndicator />
                         <p className="pt-1 text-xs font-bold text-blue-300">
                           {typingDisplay()}
@@ -636,8 +694,8 @@ const ChatPage = () => {
             <div ref={chatEndRef} />
           </div>
         </div>
-        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">         
-          <div className="relative flex items-end gap-2">
+        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">   
+          <div className="relative flex items-end gap-2">       
             <TextareaAutosize
               value={newMessage}
               onChange={handleNewMessageChange}
@@ -665,16 +723,16 @@ const ChatPage = () => {
           <div
             className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={handleCloseConfirmModal}
-          >            
+          >   
             <div
               className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
               onClick={(e) => e.stopPropagation()}
-            >             
+            >     
               <h2 className="text-lg font-bold">Delete Message</h2>
               <p className="mt-2 text-gray-600">
                 Are you sure you want to permanently delete this message?
               </p>
-              <div className="mt-6 flex justify-end gap-3">            
+              <div className="mt-6 flex justify-end gap-3">      
                 <button
                   onClick={handleCloseConfirmModal}
                   className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 font-semibold text-gray-800 transition hover:bg-gray-300"
