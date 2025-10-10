@@ -13,6 +13,7 @@ import ChatPage from "./pages/ChatPage";
 import ChatPlaceholder from "./components/ChatPlaceholder";
 import Spinner from "./components/Spinner";
 import { Toaster } from "react-hot-toast";
+import NotFoundPage from "./pages/NotFoundPage";
 
 function PrivateRoute({ children }) {
   const { token, loading } = useAuth();
@@ -77,6 +78,7 @@ function App() {
             <Route path="chat/:userId" element={<ChatPage />} />
             <Route path="group/:groupId" element={<ChatPage />} />
           </Route>
+        <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Router>
     </AuthProvider>
