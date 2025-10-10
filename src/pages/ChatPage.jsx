@@ -63,25 +63,33 @@ const ChatPage = () => {
     if (isGroupChat) {
       getGroupById(groupId)
         .then((response) => {
-          if (response.data?.group)
+          if (response.data?.group) {
             setChatPartner({
               ...response.data.group,
               name: response.data.group.groupName,
             });
+          }
         })
-        .catch(console.error);
+        .catch((error) => {
+          toast.error("Group not found.");
+          navigate("/");
+        });
     } else {
       getUserById(recipientId)
         .then((response) => {
-          if (response.data?.user?.[0])
+          if (response.data?.user?.[0]) {
             setChatPartner({
               ...response.data.user[0],
               name: response.data.user[0].username,
             });
+          }
         })
-        .catch(console.error);
+        .catch((error) => {
+          toast.error("User not found.");
+          navigate("/");
+        });
     }
-  }, [groupId, recipientId, isGroupChat]);
+  }, [groupId, recipientId, isGroupChat, navigate]);
 
   useEffect(() => {
     setMessages([]);
@@ -488,16 +496,16 @@ const ChatPage = () => {
         <div
           className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => setIsLeaveModalOpen(false)}
-        >  
+        >
           <div
             className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
-          >    
+          >
             <h2 className="text-lg font-bold">Leave Group</h2>
             <p className="mt-2 text-gray-600">
               Are you sure you want to leave "{chatPartner?.name}"?
             </p>
-            <div className="mt-6 flex justify-end gap-3">      
+            <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setIsLeaveModalOpen(false)}
                 className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 font-semibold text-gray-800 transition hover:bg-gray-300"
@@ -614,7 +622,7 @@ const ChatPage = () => {
                                 if (e.key === "Escape") handleCancelEdit();
                               }}
                             />
-                            <div className="mt-2 flex justify-end gap-3 text-xs">            
+                            <div className="mt-2 flex justify-end gap-3 text-xs">
                               <button
                                 onClick={handleCancelEdit}
                                 className="cursor-pointer hover:underline"
@@ -649,7 +657,7 @@ const ChatPage = () => {
                       </span>
                     </div>
                     {isMyMessage && !msg.isDeleted && !isEditing && (
-                      <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">                   
+                      <div className="flex flex-col gap-2 text-gray-400 opacity-0 transition group-hover:opacity-100">
                         <button
                           onClick={() => handleStartEdit(msg)}
                           className="cursor-pointer p-1 hover:text-blue-400"
@@ -669,16 +677,16 @@ const ChatPage = () => {
               })
             )}
             {otherTypingUsers.length > 0 && (
-              <div className="group flex items-start gap-2.5 justify-start">          
+              <div className="group flex items-start gap-2.5 justify-start">
                 {isGroupChat && otherTypingUsers[0] && (
                   <Avatar username={otherTypingUsers[0]} />
                 )}
-                <div className="flex flex-col items-start">            
+                <div className="flex flex-col items-start">
                   <div
                     className={`max-w-lg rounded-2xl px-4 py-3 rounded-bl-none bg-gray-700 text-white shadow-md`}
-                  >            
+                  >
                     {isGroupChat ? (
-                      <div className="flex flex-col items-start">                 
+                      <div className="flex flex-col items-start">
                         <TypingIndicator />
                         <p className="pt-1 text-xs font-bold text-blue-300">
                           {typingDisplay()}
@@ -694,8 +702,8 @@ const ChatPage = () => {
             <div ref={chatEndRef} />
           </div>
         </div>
-        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">   
-          <div className="relative flex items-end gap-2">       
+        <footer className="shrink-0 border-t bg-white p-4 shadow-[0_-2px_5px_-1px_rgba(0,0,0,0.05)]">
+          <div className="relative flex items-end gap-2">
             <TextareaAutosize
               value={newMessage}
               onChange={handleNewMessageChange}
@@ -723,16 +731,16 @@ const ChatPage = () => {
           <div
             className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={handleCloseConfirmModal}
-          >   
+          >
             <div
               className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
               onClick={(e) => e.stopPropagation()}
-            >     
+            >
               <h2 className="text-lg font-bold">Delete Message</h2>
               <p className="mt-2 text-gray-600">
                 Are you sure you want to permanently delete this message?
               </p>
-              <div className="mt-6 flex justify-end gap-3">      
+              <div className="mt-6 flex justify-end gap-3">
                 <button
                   onClick={handleCloseConfirmModal}
                   className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 font-semibold text-gray-800 transition hover:bg-gray-300"
