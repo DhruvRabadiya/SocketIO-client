@@ -19,17 +19,13 @@ const UserList = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [usersResponse, groupsResponse] = await Promise.all([
-        getAllUsers(),
-        getUserGroups(),
-      ]);
+      const usersResponse = await getAllUsers();
       const otherUsers = user?.id
         ? usersResponse.data.getAllusers.filter((u) => u._id !== user.id)
         : usersResponse.data.getAllusers;
       setUsers(otherUsers);
-      updateGroups(groupsResponse.data.groups);
     } catch (error) {
-      toast.error("Could not fetch contacts and groups.");
+      toast.error("Could not fetch contacts.");
     } finally {
       setIsLoading(false);
     }
@@ -74,16 +70,22 @@ const UserList = () => {
         );
       };
 
+      const newUserRegisteredHandler = (newUser) => {
+        setUsers((prevUsers) => [...prevUsers, newUser]);
+      };
+
       socket.on("group_renamed", groupRenamedHandler);
       socket.on("members_added", memberChangeHandler);
       socket.on("member_left", memberChangeHandler);
       socket.on("added_to_group", addedToGroupHandler);
+      socket.on("new_user_registered", newUserRegisteredHandler);
 
       return () => {
         socket.off("group_renamed", groupRenamedHandler);
         socket.off("members_added", memberChangeHandler);
         socket.off("member_left", memberChangeHandler);
         socket.off("added_to_group", addedToGroupHandler);
+        socket.off("new_user_registered", newUserRegisteredHandler);
       };
     }
   }, [socket, updateGroups]);
@@ -151,7 +153,7 @@ const UserList = () => {
                   {users.map((chatUser) => {
                     const isOnline = onlineUsers.includes(chatUser._id);
                     return (
-                      <li key={chatUser._id}>  
+                      <li key={chatUser._id}>
                         <NavLink
                           to={`/chat/${chatUser._id}`}
                           className={({ isActive }) =>
@@ -162,7 +164,7 @@ const UserList = () => {
                             }`
                           }
                         >
-                          <div className="relative shrink-0">   
+                          <div className="relative shrink-0">
                             <Avatar username={chatUser.username} />
                             {isOnline ? (
                               <div
@@ -197,7 +199,7 @@ const UserList = () => {
                           (id) => id !== user.id
                         ).length;
                       return (
-                        <li key={group._id}> 
+                        <li key={group._id}>
                           <NavLink
                             to={`/group/${group._id}`}
                             className={({ isActive }) =>
@@ -207,15 +209,15 @@ const UserList = () => {
                                   : "hover:bg-gray-700/50"
                               }`
                             }
-                          >            
+                          >
                             <Avatar username={group.groupName} />
-                            <div className="flex-grow">              
+                            <div className="flex-grow">
                               <p className="text-lg font-medium text-gray-200">
                                 {group.groupName}
                               </p>
                               {otherOnlineMembersCount > 0 ? (
-                                <div className="flex items-center gap-1.5 text-xs text-green-400">                
-                                  <span className="relative flex h-2 w-2">                   
+                                <div className="flex items-center gap-1.5 text-xs text-green-400">
+                                  <span className="relative flex h-2 w-2">
                                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
                                     <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
                                   </span>
