@@ -30,6 +30,10 @@ messaging.onBackgroundMessage((payload) => {
     body: payload.notification.body,
     icon: "/favicon.svg", // An icon from your public folder
     data: payload.data, // This attaches your custom data (like URLs) to the notification
+    actions: [
+      { action: "reply", title: "Reply" },
+      { action: "open", title: "Open Chat" },
+    ],
   };
 
   // This line is what actually shows the notification on the user's screen

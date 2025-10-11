@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from "react";
+import React, { createContext, useState, useContext, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { jwtDecode } from "jwt-decode";
 import { io } from "socket.io-client";
@@ -23,7 +23,7 @@ const AuthProvider = ({ children }) => {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const navigate = useNavigate();
-
+  const fcmTokenRef = useRef(null);
   useEffect(() => {
     if (token) {
       const newSocket = io(import.meta.env.VITE_BACKEND_URL, {
@@ -37,9 +37,12 @@ const AuthProvider = ({ children }) => {
         .catch(console.error);
 
       const setupNotifications = async () => {
-        const fcmToken = await getFcmToken();
-        if (fcmToken) {
-          await saveFcmToken(fcmToken);
+        const currentToken = fcmTokenRef.current; // Get the old token
+        const newFcmToken = await getFcmToken(); // Get the new token
+
+        if (newFcmToken && newFcmToken !== currentToken) {
+          await saveFcmToken(newFcmToken, currentToken);
+          fcmTokenRef.current = newFcmToken; // Store the new token
         }
       };
       setupNotifications();
