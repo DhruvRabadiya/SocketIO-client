@@ -27,7 +27,6 @@ function PrivateRoute({ children }) {
   return token ? children : <Navigate to="/login" />;
 }
 
-// NEW: Component to protect public routes like login/register
 function PublicRoute({ children }) {
   const { token, loading } = useAuth();
   if (loading) {
@@ -37,17 +36,15 @@ function PublicRoute({ children }) {
       </div>
     );
   }
-  // If user is logged in, redirect them away from login/register
   return token ? <Navigate to="/" /> : children;
 }
 
 function App() {
   return (
-    <AuthProvider>
-      <Toaster position="top-center" reverseOrder={false} />
-      <Router>
+    <Router>
+      <AuthProvider>
+        <Toaster position="top-center" reverseOrder={false} />
         <Routes>
-          {/* Public auth routes are now wrapped in PublicRoute */}
           <Route
             path="/login"
             element={
@@ -64,8 +61,6 @@ function App() {
               </PublicRoute>
             }
           />
-
-          {/* Main app private routes */}
           <Route
             path="/"
             element={
@@ -78,10 +73,10 @@ function App() {
             <Route path="chat/:userId" element={<ChatPage />} />
             <Route path="group/:groupId" element={<ChatPage />} />
           </Route>
-        <Route path="*" element={<NotFoundPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
-      </Router>
-    </AuthProvider>
+      </AuthProvider>
+    </Router>
   );
 }
 

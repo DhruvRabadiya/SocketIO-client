@@ -60,3 +60,7 @@ export const renameGroup = (groupId, newGroupName, tempId) => {
 export const leaveGroup = (groupId, tempId) => {
   return apiClient.patch(`/user/groups/${groupId}/leave`, { tempId });
 };
+export const saveFcmToken = (token) =>
+  apiClient.post("/user/save-fcm-token", { token });
+export const removeFcmToken = (token) =>
+  apiClient.post("/user/remove-fcm-token", { token });
